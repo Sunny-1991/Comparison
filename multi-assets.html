@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>多资产对比</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Marcellus&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css?v=20260223-multi-asset-v1" />
+    <script defer src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <script defer src="house-price-data.js"></script>
+    <script defer src="house-price-data-nbs-70.js"></script>
+    <script defer src="multi-assets.js?v=20260223-multi-asset-v1"></script>
+  </head>
+  <body>
+    <main class="page page-multi-assets">
+      <section class="hero">
+        <p class="eyebrow">Multi Asset Dashboard</p>
+        <h1>多资产对比</h1>
+        <p class="subtitle">覆盖中国房产、美国房产（Case-Shiller）、贵金属、加密资产</p>
+        <p class="subtitle credit">同一时间轴统一观察（2008年1月起）</p>
+        <div class="hero-links">
+          <a class="hero-link-btn" href="index.html">返回房价主页</a>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <aside class="controls">
+          <h2>设置</h2>
+
+          <div class="control-block control-block--loose-select">
+            <h3>页面风格</h3>
+            <label>
+              <select id="themeMode" aria-label="页面风格选择">
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="control-block">
+            <div class="block-head">
+              <h3 id="assetBlockTitle">资产（可选多至6个）</h3>
+              <div class="inline-actions">
+                <button id="selectAllBtn" type="button">全选前6个</button>
+                <button id="clearAllBtn" type="button">清空</button>
+              </div>
+            </div>
+            <label>
+              搜索资产
+              <input
+                id="assetSearch"
+                class="asset-search"
+                type="search"
+                placeholder="输入城市或资产名（如 北京 / 黄金 / 比特币）"
+                autocomplete="off"
+              />
+            </label>
+            <div id="assetList" class="asset-list" aria-label="资产选择"></div>
+          </div>
+
+          <div class="control-block">
+            <h3>时间区间</h3>
+            <div class="date-grid">
+              <label>
+                起点
+                <select id="startMonth"></select>
+              </label>
+              <label>
+                终点
+                <select id="endMonth"></select>
+              </label>
+            </div>
+          </div>
+
+          <div class="control-block actions">
+            <button id="renderBtn" class="primary-btn" type="button">一键生成</button>
+            <p id="statusText" class="status">正在加载多资产数据...</p>
+          </div>
+        </aside>
+
+        <section class="chart-zone">
+          <div class="chart-head">
+            <h2 id="chartTitle">多资产价格走势对比</h2>
+            <p id="chartMeta">-</p>
+          </div>
+          <div class="chart-stage">
+            <div id="chart" class="chart" role="img" aria-label="多资产价格走势折线图"></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>资产</th>
+                  <th>起点值</th>
+                  <th>区间峰值</th>
+                  <th>最新值</th>
+                  <th>区间涨跌</th>
+                  <th>较峰值回撤</th>
+                  <th>最新时间</th>
+                </tr>
+              </thead>
+              <tbody id="summaryBody"></tbody>
+            </table>
+          </div>
+          <p class="footnote" id="footnoteText"></p>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
