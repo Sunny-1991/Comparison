@@ -552,6 +552,7 @@ function refreshCompareSourceControl({ keepSelection = true } = {}) {
 function enforceCitySelectionLimit(lastChangedInput = null) {
   const checkedInputs = [...cityListEl.querySelectorAll('input[type="checkbox"]:checked')];
   if (checkedInputs.length <= MAX_SELECTED_CITY_COUNT) {
+    syncCitySelectionCapacityUi();
     return true;
   }
 
@@ -562,7 +563,27 @@ function enforceCitySelectionLimit(lastChangedInput = null) {
       input.checked = false;
     });
   }
+  syncCitySelectionCapacityUi();
   return false;
+}
+
+function syncCitySelectionCapacityUi() {
+  const inputList = [...cityListEl.querySelectorAll('input[type="checkbox"]')];
+  const checkedCount = inputList.reduce(
+    (count, input) => count + ((input instanceof HTMLInputElement && input.checked) ? 1 : 0),
+    0,
+  );
+  const isFull = checkedCount >= MAX_SELECTED_CITY_COUNT;
+
+  inputList.forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) return;
+    const shouldDisable = isFull && !input.checked;
+    input.disabled = shouldDisable;
+    const label = input.closest(".city-item");
+    if (label) {
+      label.classList.toggle("is-selection-limit-disabled", shouldDisable);
+    }
+  });
 }
 
 function clampNumber(value, min, max) {
@@ -1000,6 +1021,7 @@ function buildCityControls(cities, defaultSelectedNames = null) {
     label.append(input, text);
     cityListEl.appendChild(label);
   }
+  syncCitySelectionCapacityUi();
 }
 
 function buildMonthSelects(dates) {
@@ -3818,6 +3840,7 @@ function bindEvents() {
         el.checked = false;
       }
     });
+    syncCitySelectionCapacityUi();
     refreshCompareSourceControl({ keepSelection: true });
     setStatus(`已选择前 ${MAX_SELECTED_CITY_COUNT} 个城市。`, false);
   });
@@ -3826,6 +3849,7 @@ function bindEvents() {
     cityListEl.querySelectorAll('input[type="checkbox"]').forEach((el) => {
       el.checked = false;
     });
+    syncCitySelectionCapacityUi();
     refreshCompareSourceControl({ keepSelection: false });
   });
 
