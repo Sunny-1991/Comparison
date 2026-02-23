@@ -227,6 +227,11 @@ const footnoteEl = document.getElementById("footnoteText");
 const chartEl = document.getElementById("chart");
 const chartStatsOverlayEl = document.getElementById("chartStatsOverlay");
 const chartStageEl = chartEl ? chartEl.closest(".chart-stage") : null;
+const timeZoomWidgetEl = document.getElementById("timeZoomWidget");
+const timeZoomRangeTextEl = document.getElementById("timeZoomRangeText");
+const timeZoomFillEl = document.getElementById("timeZoomFill");
+const timeZoomStartEl = document.getElementById("timeZoomStart");
+const timeZoomEndEl = document.getElementById("timeZoomEnd");
 
 const chart = echarts.init(chartEl, null, {
   renderer: "canvas",
@@ -237,8 +242,9 @@ let raw = null;
 let latestRenderContext = null;
 let isApplyingOption = false;
 let isSyncingRangeFromSlider = false;
-let dataZoomSyncTimer = null;
-let pendingZoomPayload = null;
+let timeZoomMonths = [];
+let timeZoomRenderFrame = null;
+let isSyncingTimeZoomInputs = false;
 let textMeasureContext = null;
 
 const uiState = {
@@ -506,6 +512,11 @@ function safeRender(contextLabel = "渲染") {
 
 function clampNumber(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function isTouchPortraitViewport() {
@@ -1243,50 +1254,165 @@ async function exportCurrentChartImage(pixelRatio = 2, label = "标准清晰") {
   setStatus(`图片已导出（${label}，与当前页面显示一致）。`, false);
 }
 
-function toFiniteNumber(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
+function findMonthIndexByToken(months, monthValue) {
+  if (!Array.isArray(months) || months.length === 0) return -1;
+  const token = normalizeMonthToken(monthValue);
+  if (!token) return -1;
+  for (let i = 0; i < months.length; i += 1) {
+    if (normalizeMonthToken(months[i]) === token) return i;
+  }
+  return -1;
 }
 
-function resolveAxisMonthFromPercent(percent, axisData) {
-  if (!Array.isArray(axisData) || axisData.length === 0) return "";
-  const safePercent = Number.isFinite(percent) ? Math.max(0, Math.min(100, percent)) : 0;
-  const index = Math.round((safePercent / 100) * (axisData.length - 1));
-  return normalizeMonthToken(axisData[index]);
+function applyTimeZoomFill(startIndex, endIndex, maxIndex) {
+  if (!timeZoomFillEl) return;
+  if (maxIndex <= 0) {
+    timeZoomFillEl.style.left = "0%";
+    timeZoomFillEl.style.right = "0%";
+    return;
+  }
+  const startPct = clampNumber((startIndex / maxIndex) * 100, 0, 100);
+  const endPct = clampNumber((endIndex / maxIndex) * 100, 0, 100);
+  timeZoomFillEl.style.left = `${startPct}%`;
+  timeZoomFillEl.style.right = `${Math.max(0, 100 - endPct)}%`;
 }
 
-function resolveAxisMonthFromZoomValue(value, percent, axisData) {
-  if (!Array.isArray(axisData) || axisData.length === 0) return "";
-  const normalizedValueToken = normalizeMonthToken(value);
-  if (typeof normalizedValueToken === "string" && axisData.includes(normalizedValueToken)) {
-    return normalizedValueToken;
+function setTimeZoomDisabled(disabled) {
+  if (!timeZoomWidgetEl || !timeZoomStartEl || !timeZoomEndEl || !timeZoomRangeTextEl) return;
+  timeZoomWidgetEl.classList.toggle("is-disabled", disabled);
+  timeZoomStartEl.disabled = disabled;
+  timeZoomEndEl.disabled = disabled;
+  if (disabled) {
+    timeZoomRangeTextEl.textContent = "-";
+    applyTimeZoomFill(0, 0, 0);
   }
-  if (typeof value === "string" && axisData.includes(value)) {
-    return value;
-  }
-  if (Number.isFinite(value)) {
-    const index = Math.round(clampNumber(Number(value), 0, axisData.length - 1));
-    return axisData[index] || "";
-  }
-  return resolveAxisMonthFromPercent(percent, axisData);
 }
 
-function getZoomPayload(event) {
-  if (!event || typeof event !== "object") return null;
-  const candidates = Array.isArray(event.batch) ? event.batch : [event];
-  for (let i = candidates.length - 1; i >= 0; i -= 1) {
-    const item = candidates[i];
-    if (!item || typeof item !== "object") continue;
-    if (
-      Number.isFinite(item.start) ||
-      Number.isFinite(item.end) ||
-      typeof item.startValue !== "undefined" ||
-      typeof item.endValue !== "undefined"
-    ) {
-      return item;
+function syncTimeZoomWidget(months, startMonth, endMonth) {
+  if (!timeZoomWidgetEl || !timeZoomStartEl || !timeZoomEndEl || !timeZoomRangeTextEl) return;
+  timeZoomMonths = Array.isArray(months) ? [...months] : [];
+  if (timeZoomMonths.length === 0) {
+    setTimeZoomDisabled(true);
+    return;
+  }
+
+  const maxIndex = Math.max(0, timeZoomMonths.length - 1);
+  timeZoomStartEl.min = "0";
+  timeZoomStartEl.max = String(maxIndex);
+  timeZoomEndEl.min = "0";
+  timeZoomEndEl.max = String(maxIndex);
+  timeZoomStartEl.step = "1";
+  timeZoomEndEl.step = "1";
+
+  let startIndex = findMonthIndexByToken(timeZoomMonths, startMonth);
+  let endIndex = findMonthIndexByToken(timeZoomMonths, endMonth);
+  if (startIndex < 0) startIndex = 0;
+  if (endIndex < 0) endIndex = maxIndex;
+  if (startIndex > endIndex) {
+    startIndex = 0;
+    endIndex = maxIndex;
+  }
+
+  isSyncingTimeZoomInputs = true;
+  timeZoomStartEl.value = String(startIndex);
+  timeZoomEndEl.value = String(endIndex);
+  isSyncingTimeZoomInputs = false;
+
+  const displayStart = timeZoomMonths[startIndex] || startMonth || "";
+  const displayEnd = timeZoomMonths[endIndex] || endMonth || "";
+  timeZoomRangeTextEl.textContent = `${formatMonthZh(displayStart)} - ${formatMonthZh(displayEnd)}`;
+  applyTimeZoomFill(startIndex, endIndex, maxIndex);
+  setTimeZoomDisabled(timeZoomMonths.length <= 1);
+}
+
+function syncTimeZoomWidgetFromMonthSelects() {
+  if (!raw || !Array.isArray(raw.dates) || raw.dates.length === 0) return;
+  const selectedStart = startMonthEl.value;
+  const selectedEnd = endMonthEl.value;
+  const startIndex = raw.dates.indexOf(selectedStart);
+  const endIndex = raw.dates.indexOf(selectedEnd);
+  if (startIndex < 0 || endIndex < 0 || startIndex > endIndex) {
+    setTimeZoomDisabled(true);
+    return;
+  }
+
+  const months = raw.dates.slice(startIndex, endIndex + 1);
+  let nextStartIndex = findMonthIndexByToken(months, uiState.zoomStartMonth);
+  let nextEndIndex = findMonthIndexByToken(months, uiState.zoomEndMonth);
+  if (nextStartIndex < 0) nextStartIndex = 0;
+  if (nextEndIndex < 0) nextEndIndex = months.length - 1;
+  if (nextStartIndex > nextEndIndex) {
+    nextStartIndex = 0;
+    nextEndIndex = months.length - 1;
+  }
+
+  const nextStart = months[nextStartIndex];
+  const nextEnd = months[nextEndIndex];
+  uiState.zoomStartMonth = normalizeMonthToken(nextStart) || nextStart;
+  uiState.zoomEndMonth = normalizeMonthToken(nextEnd) || nextEnd;
+  syncTimeZoomWidget(months, nextStart, nextEnd);
+}
+
+function scheduleRenderFromTimeZoom() {
+  if (timeZoomRenderFrame) {
+    return;
+  }
+  timeZoomRenderFrame = requestAnimationFrame(() => {
+    timeZoomRenderFrame = null;
+    if (isSyncingRangeFromSlider) {
+      return;
+    }
+    isSyncingRangeFromSlider = true;
+    try {
+      safeRender("滑块区间同步");
+    } finally {
+      isSyncingRangeFromSlider = false;
+    }
+  });
+}
+
+function applyTimeZoomFromInputs(activeHandle) {
+  if (
+    isSyncingTimeZoomInputs ||
+    !timeZoomStartEl ||
+    !timeZoomEndEl ||
+    !Array.isArray(timeZoomMonths) ||
+    timeZoomMonths.length === 0
+  ) {
+    return;
+  }
+
+  const maxIndex = Math.max(0, timeZoomMonths.length - 1);
+  let startIndex = Math.round(clampNumber(Number(timeZoomStartEl.value), 0, maxIndex));
+  let endIndex = Math.round(clampNumber(Number(timeZoomEndEl.value), 0, maxIndex));
+  if (startIndex > endIndex) {
+    if (activeHandle === "start") {
+      endIndex = startIndex;
+    } else {
+      startIndex = endIndex;
     }
   }
-  return null;
+
+  isSyncingTimeZoomInputs = true;
+  timeZoomStartEl.value = String(startIndex);
+  timeZoomEndEl.value = String(endIndex);
+  isSyncingTimeZoomInputs = false;
+
+  const nextStartMonth = timeZoomMonths[startIndex];
+  const nextEndMonth = timeZoomMonths[endIndex];
+  if (!nextStartMonth || !nextEndMonth) return;
+
+  timeZoomRangeTextEl.textContent = `${formatMonthZh(nextStartMonth)} - ${formatMonthZh(nextEndMonth)}`;
+  applyTimeZoomFill(startIndex, endIndex, maxIndex);
+
+  const normalizedStart = normalizeMonthToken(nextStartMonth) || nextStartMonth;
+  const normalizedEnd = normalizeMonthToken(nextEndMonth) || nextEndMonth;
+  if (uiState.zoomStartMonth === normalizedStart && uiState.zoomEndMonth === normalizedEnd) {
+    return;
+  }
+  uiState.zoomStartMonth = normalizedStart;
+  uiState.zoomEndMonth = normalizedEnd;
+  scheduleRenderFromTimeZoom();
 }
 
 function buildAvailableRange(series, months) {
@@ -2205,6 +2331,7 @@ function buildMonthSelects(dates) {
   const defaultStart = dates.includes(BASE_START_MONTH) ? BASE_START_MONTH : dates[0];
   startMonthEl.value = defaultStart;
   endMonthEl.value = dates[dates.length - 1];
+  syncTimeZoomWidgetFromMonthSelects();
 }
 
 function getOverlayColumnRatios(isCrossSource) {
@@ -2386,9 +2513,6 @@ function makeOption(rendered, months, viewportStartMonth, viewportEndMonth) {
     visibleEndIndex = temp;
   }
 
-  const axisMaxIndex = Math.max(1, axisMonths.length - 1);
-  const zoomStartPercent = (visibleStartIndex / axisMaxIndex) * 100;
-  const zoomEndPercent = (visibleEndIndex / axisMaxIndex) * 100;
   const legendLabelMap = new Map(
     rendered.map((item) => [item.seriesName || item.id || item.name, item.name || "-"]),
   );
@@ -2518,14 +2642,10 @@ function makeOption(rendered, months, viewportStartMonth, viewportEndMonth) {
   const candleDownColor = chartTheme.candleDownColor || "#e15050";
   const candleDownBorderColor = chartTheme.candleDownBorderColor || candleDownColor;
   const baseTextFontSize = compactMobile ? 12 : mediumMobile ? 13 : 14;
-  const sliderBaseHeight =
-    responsiveChartWidth <= 520 ? 12 : responsiveChartWidth <= 760 ? 13 : 14;
-  const sliderHeight = Math.max(10, Math.round(sliderBaseHeight * 1.1));
-  const sliderBottom = Math.max(0, gridLayout.bottom - Math.round(sliderHeight / 2));
   const legendBottom = Math.max(
-    16,
+    15,
     Math.round(
-      sliderBottom - (responsiveChartWidth <= 520 ? 58 : responsiveChartWidth <= 760 ? 66 : 74),
+      gridLayout.bottom - (responsiveChartWidth <= 520 ? 50 : responsiveChartWidth <= 760 ? 58 : 66),
     ),
   );
   const chartTextMaskColor = chartTheme.textMaskColor;
@@ -2642,66 +2762,12 @@ function makeOption(rendered, months, viewportStartMonth, viewportEndMonth) {
       top: gridLayout.top,
       bottom: gridLayout.bottom,
     },
-    dataZoom: [
-      {
-        type: "slider",
-        xAxisIndex: 0,
-        filterMode: "none",
-        start: zoomStartPercent,
-        end: zoomEndPercent,
-        showDetail: false,
-        brushSelect: false,
-        bottom: sliderBottom,
-        height: sliderHeight,
-        borderColor: "rgba(0, 0, 0, 0)",
-        backgroundColor: "rgba(0, 0, 0, 0)",
-        fillerColor: "rgba(0, 0, 0, 0)",
-        dataBackground: {
-          lineStyle: {
-            color: "rgba(0, 0, 0, 0)",
-            width: 0,
-          },
-          areaStyle: {
-            color: "rgba(0, 0, 0, 0)",
-          },
-        },
-        selectedDataBackground: {
-          lineStyle: {
-            color: "rgba(0, 0, 0, 0)",
-            width: 0,
-          },
-          areaStyle: {
-            color: "rgba(0, 0, 0, 0)",
-          },
-        },
-        moveHandleStyle: {
-          color: "rgba(0, 0, 0, 0)",
-        },
-        handleSize: "110%",
-        handleStyle: {
-          color: chartTheme.sliderHandleColor,
-          borderColor: chartTheme.sliderHandleBorderColor,
-          borderWidth: 1.2,
-        },
-        emphasis: {
-          moveHandleStyle: {
-            color: "rgba(0, 0, 0, 0)",
-          },
-          handleStyle: {
-            color: chartTheme.sliderHandleHoverColor,
-            borderColor: chartTheme.sliderHandleHoverBorderColor,
-            borderWidth: 1.4,
-          },
-        },
-        textStyle: {
-          color: "rgba(0, 0, 0, 0)",
-        },
-      },
-    ],
     xAxis: {
       type: "category",
       boundaryGap: false,
       data: axisMonths,
+      min: visibleStartIndex,
+      max: visibleEndIndex,
       axisTick: {
         show: responsiveChartWidth > 760,
         alignWithLabel: true,
@@ -2988,6 +3054,7 @@ function render() {
   const viewportEndMonth = viewportMonths[viewportMonths.length - 1] || months[months.length - 1];
   uiState.zoomStartMonth = normalizeMonthToken(viewportStartMonth) || viewportStartMonth;
   uiState.zoomEndMonth = normalizeMonthToken(viewportEndMonth) || viewportEndMonth;
+  syncTimeZoomWidget(months, viewportStartMonth, viewportEndMonth);
 
   const rendered = [];
   const summaryRows = [];
@@ -3244,12 +3311,14 @@ function bindEvents() {
     if (startMonthEl.value > endMonthEl.value) {
       endMonthEl.value = startMonthEl.value;
     }
+    syncTimeZoomWidgetFromMonthSelects();
   });
 
   endMonthEl.addEventListener("change", () => {
     if (endMonthEl.value < startMonthEl.value) {
       startMonthEl.value = endMonthEl.value;
     }
+    syncTimeZoomWidgetFromMonthSelects();
   });
 
   chart.on("legendselectchanged", (params) => {
@@ -3273,65 +3342,20 @@ function bindEvents() {
     }
   });
 
-  chart.on("dataZoom", (event) => {
-    if (isApplyingOption || isSyncingRangeFromSlider) return;
-    pendingZoomPayload = getZoomPayload(event);
-
-    if (dataZoomSyncTimer) {
-      clearTimeout(dataZoomSyncTimer);
-      dataZoomSyncTimer = null;
-    }
-
-    dataZoomSyncTimer = setTimeout(() => {
-      const option = chart.getOption();
-      const axisData = option?.xAxis?.[0]?.data;
-      const zoomList = option?.dataZoom;
-      if (!Array.isArray(axisData) || axisData.length === 0 || !Array.isArray(zoomList)) return;
-
-      const sliderZoom =
-        zoomList.find((item) => item?.type === "slider") ||
-        zoomList.find((item) => Number(item?.xAxisIndex) === 0) ||
-        zoomList[0];
-      if (!sliderZoom) return;
-
-      const zoomPayload = pendingZoomPayload || sliderZoom;
-      pendingZoomPayload = null;
-      const startPercent = toFiniteNumber(zoomPayload?.start) ?? toFiniteNumber(sliderZoom.start);
-      const endPercent = toFiniteNumber(zoomPayload?.end) ?? toFiniteNumber(sliderZoom.end);
-      const nextStartMonth =
-        resolveAxisMonthFromZoomValue(zoomPayload?.startValue, startPercent, axisData) ||
-        resolveAxisMonthFromZoomValue(sliderZoom?.startValue, startPercent, axisData) ||
-        resolveAxisMonthFromPercent(startPercent, axisData) ||
-        uiState.zoomStartMonth;
-      const nextEndMonth =
-        resolveAxisMonthFromZoomValue(zoomPayload?.endValue, endPercent, axisData) ||
-        resolveAxisMonthFromZoomValue(sliderZoom?.endValue, endPercent, axisData) ||
-        resolveAxisMonthFromPercent(endPercent, axisData) ||
-        uiState.zoomEndMonth;
-      const normalizedStartMonth = normalizeMonthToken(nextStartMonth);
-      const normalizedEndMonth = normalizeMonthToken(nextEndMonth);
-
-      if (!normalizedStartMonth || !normalizedEndMonth || normalizedStartMonth > normalizedEndMonth) {
-        return;
-      }
-      if (
-        uiState.zoomStartMonth === normalizedStartMonth &&
-        uiState.zoomEndMonth === normalizedEndMonth
-      ) {
-        return;
-      }
-
-      uiState.zoomStartMonth = normalizedStartMonth;
-      uiState.zoomEndMonth = normalizedEndMonth;
-
-      isSyncingRangeFromSlider = true;
-      try {
-        safeRender("滑块区间同步");
-      } finally {
-        isSyncingRangeFromSlider = false;
-      }
-    }, 90);
-  });
+  if (timeZoomStartEl && timeZoomEndEl) {
+    timeZoomStartEl.addEventListener("input", () => {
+      applyTimeZoomFromInputs("start");
+    });
+    timeZoomEndEl.addEventListener("input", () => {
+      applyTimeZoomFromInputs("end");
+    });
+    timeZoomStartEl.addEventListener("change", () => {
+      applyTimeZoomFromInputs("start");
+    });
+    timeZoomEndEl.addEventListener("change", () => {
+      applyTimeZoomFromInputs("end");
+    });
+  }
 
   window.addEventListener("resize", () => {
     syncUsHousingGridViewportHeight();
