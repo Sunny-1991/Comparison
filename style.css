@@ -801,6 +801,8 @@ button:hover {
 .city-search {
   width: 100%;
   margin-top: 9px;
+  font-size: 0.9rem;
+  padding: 8px 10px;
 }
 
 .city-list--three-cols {
