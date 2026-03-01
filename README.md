@@ -70,6 +70,7 @@
 
 - 中原数据：人工喂数（可配合 Excel 提取脚本）
 - 统计局数据：GitHub Actions 自动月更并提交数据文件
+- 多资产数据（黄金、白银、权益等）：GitHub Actions 自动日更并提交数据文件
 
 > 说明：即使有自动更新流程，线上页面依然是静态站点，不依赖后端实时接口。
 
@@ -165,9 +166,22 @@ node scripts/fetch-nbs-70city-secondhand.mjs
 - `house-price-data-nbs-70.js`
 - `house-price-data-nbs-70.json`
 
+### 7.4 多资产数据构建（黄金/白银/权益/美国房产）
+
+```bash
+node scripts/build-multi-asset-data.mjs
+```
+
+产物：
+
+- `multi-asset-data.js`
+- `multi-asset-data.json`
+
 ---
 
-## 8. 统计局自动月更（GitHub Actions）
+## 8. 自动更新（GitHub Actions）
+
+### 8.1 统计局自动月更
 
 工作流文件：
 
@@ -185,6 +199,23 @@ node scripts/fetch-nbs-70city-secondhand.mjs
 3. 有变化才自动提交并推送
 
 自动更新覆盖统计局数据；中原付费数据建议继续人工更新。
+
+### 8.2 多资产自动日更（黄金/白银/权益等）
+
+工作流文件：
+
+- `.github/workflows/auto-update-multi-asset-data.yml`
+
+触发方式：
+
+- 每日定时执行（UTC）
+- 手动触发 `workflow_dispatch`
+
+行为：
+
+1. 执行 `node scripts/build-multi-asset-data.mjs`
+2. 检测 `multi-asset-data.js` / `multi-asset-data.json` 是否变化
+3. 仅在数据实际变化时自动提交并推送
 
 ---
 

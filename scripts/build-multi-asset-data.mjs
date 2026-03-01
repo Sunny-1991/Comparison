@@ -563,6 +563,35 @@ function mergeSeriesMaps(seriesMaps) {
   return merged;
 }
 
+function readJsonIfExists(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    return null;
+  }
+}
+
+function stripGeneratedAt(data) {
+  if (!data || typeof data !== "object") return null;
+  const cloned = { ...data };
+  delete cloned.generatedAt;
+  return cloned;
+}
+
+function resolveGeneratedAt(nextData, previousData) {
+  const previousPayload = stripGeneratedAt(previousData);
+  const nextPayload = stripGeneratedAt(nextData);
+  if (!previousPayload || !nextPayload) {
+    return new Date().toISOString();
+  }
+  if (JSON.stringify(previousPayload) === JSON.stringify(nextPayload)) {
+    const previousGeneratedAt = String(previousData.generatedAt || "").trim();
+    if (previousGeneratedAt) return previousGeneratedAt;
+  }
+  return new Date().toISOString();
+}
+
 async function main() {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -727,7 +756,7 @@ async function main() {
   ];
 
   const outputData = {
-    generatedAt: new Date().toISOString(),
+    generatedAt: "",
     baseMonth: startMonth,
     dates: months,
     categories,
@@ -742,6 +771,9 @@ async function main() {
       equities: EQUITY_TARGETS.map((item) => item.url),
     },
   };
+
+  const previousOutputData = readJsonIfExists(outputJsonPath);
+  outputData.generatedAt = resolveGeneratedAt(outputData, previousOutputData);
 
   fs.writeFileSync(outputJsonPath, `${JSON.stringify(outputData, null, 2)}\n`, "utf8");
   fs.writeFileSync(outputJsPath, `window.${WINDOW_VAR_NAME} = ${JSON.stringify(outputData, null, 2)};\n`, "utf8");

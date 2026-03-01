@@ -71,6 +71,7 @@ The frontend reads static data files from the repository directly:
 
 - Centaline data: manual updates (optionally via Excel extraction script)
 - NBS data: automatic monthly refresh via GitHub Actions
+- Multi-asset data (metals, equities, etc.): automatic daily refresh via GitHub Actions
 
 > Even with scheduled updates, runtime remains static: pages load static JS/JSON files from the repo.
 
@@ -166,9 +167,22 @@ Outputs:
 - `house-price-data-nbs-70.js`
 - `house-price-data-nbs-70.json`
 
+### 7.4 Build Multi-Asset Data (metals / equities / US housing)
+
+```bash
+node scripts/build-multi-asset-data.mjs
+```
+
+Outputs:
+
+- `multi-asset-data.js`
+- `multi-asset-data.json`
+
 ---
 
-## 8. Automatic Monthly NBS Updates (GitHub Actions)
+## 8. Automated Updates (GitHub Actions)
+
+### 8.1 Automatic Monthly NBS Updates
 
 Workflow file:
 
@@ -186,6 +200,23 @@ Workflow behavior:
 3. Commits and pushes only when changes are detected
 
 This automation covers NBS updates only. Paid Centaline data should still be updated manually.
+
+### 8.2 Automatic Daily Multi-Asset Updates (metals / equities)
+
+Workflow file:
+
+- `.github/workflows/auto-update-multi-asset-data.yml`
+
+Triggers:
+
+- Daily scheduled run (UTC)
+- Manual `workflow_dispatch`
+
+Workflow behavior:
+
+1. Runs `node scripts/build-multi-asset-data.mjs`
+2. Checks whether `multi-asset-data.js` / `multi-asset-data.json` changed
+3. Commits and pushes only when data changes are detected
 
 ---
 
