@@ -218,6 +218,11 @@ Workflow behavior:
 2. Checks whether `multi-asset-data.js` / `multi-asset-data.json` changed
 3. Commits and pushes only when data changes are detected
 
+In-progress month rules (multi-asset):
+
+- Equities: aggregate daily candles into a month-to-date monthly candle (OHLC)
+- Metals: use the latest available daily close as the current month value
+
 ---
 
 ## 9. Deployment Notes

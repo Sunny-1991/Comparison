@@ -7,8 +7,8 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const STOOQ_SERIES_URLS = Object.freeze({
-  gold: "https://stooq.com/q/d/l/?s=xauusd&i=m",
-  silver: "https://stooq.com/q/d/l/?s=xagusd&i=m",
+  gold: "https://stooq.com/q/d/l/?s=xauusd&i=d",
+  silver: "https://stooq.com/q/d/l/?s=xagusd&i=d",
 });
 const EQUITY_TARGETS = Object.freeze([
   {
@@ -17,7 +17,7 @@ const EQUITY_TARGETS = Object.freeze([
     legendName: "标普500",
     source: "Stooq（^SPX）",
     parser: "stooq",
-    url: "https://stooq.com/q/d/l/?s=%5Espx&i=m",
+    url: "https://stooq.com/q/d/l/?s=%5Espx&i=d",
   },
   {
     id: "equity_nasdaq100",
@@ -25,7 +25,7 @@ const EQUITY_TARGETS = Object.freeze([
     legendName: "纳斯达克100",
     source: "Stooq（^NDX）",
     parser: "stooq",
-    url: "https://stooq.com/q/d/l/?s=%5Endx&i=m",
+    url: "https://stooq.com/q/d/l/?s=%5Endx&i=d",
   },
   {
     id: "equity_csi300",
@@ -34,7 +34,7 @@ const EQUITY_TARGETS = Object.freeze([
     source: "东方财富（沪深300）",
     parser: "eastmoney",
     url:
-      "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.000300&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58&klt=103&fqt=0&beg=20080101&end=20500101",
+      "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.000300&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58&klt=101&fqt=0&beg=20080101&end=20500101",
   },
 ]);
 const CASE_SHILLER_TARGETS = Object.freeze([
@@ -173,6 +173,17 @@ function normalizeMonthToken(value) {
   return `${matched[1]}-${String(Number(matched[2])).padStart(2, "0")}`;
 }
 
+function normalizeDateToken(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const matched = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (!matched) return "";
+  return `${matched[1]}-${String(Number(matched[2])).padStart(2, "0")}-${String(
+    Number(matched[3]),
+  ).padStart(2, "0")}`;
+}
+
 function currentMonthUtc() {
   const now = new Date();
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -262,6 +273,25 @@ function getLatestMonthWithData(seriesById) {
   return latest;
 }
 
+function stripUrlProtocol(url) {
+  return String(url || "").replace(/^https?:\/\//i, "");
+}
+
+function isResponseBodyUsable(sourceUrl, text) {
+  const body = String(text || "").trim();
+  if (!body) return false;
+
+  const loweredSourceUrl = String(sourceUrl || "").toLowerCase();
+  if (loweredSourceUrl.includes("stooq.com")) {
+    if (body.includes("Exceeded the daily hits limit")) return false;
+    return /(?:^|\n)Date,Open,High,Low,Close(?:,Volume)?(?:\r?\n|$)/i.test(body);
+  }
+  if (loweredSourceUrl.includes("eastmoney.com")) {
+    return body.includes("klines") && body.includes("{");
+  }
+  return true;
+}
+
 function runCurl(args, envOverrides = null) {
   const env = envOverrides ? { ...process.env, ...envOverrides } : process.env;
   return execFileSync("curl", args, {
@@ -272,6 +302,8 @@ function runCurl(args, envOverrides = null) {
 }
 
 async function fetchText(url) {
+  const jinaMirrorUrl = `https://r.jina.ai/http://${stripUrlProtocol(url)}`;
+
   if (typeof fetch === "function") {
     try {
       const response = await fetch(url, {
@@ -281,7 +313,10 @@ async function fetchText(url) {
         },
       });
       if (response.ok) {
-        return await response.text();
+        const text = await response.text();
+        if (isResponseBodyUsable(url, text)) {
+          return text;
+        }
       }
     } catch (error) {
       // continue to curl fallback
@@ -308,12 +343,17 @@ async function fetchText(url) {
         https_proxy: "",
         all_proxy: "",
       }),
+    () => runCurl(["-L", "-sS", jinaMirrorUrl]),
   ];
 
   let lastError = null;
   for (const attempt of attempts) {
     try {
-      return attempt();
+      const text = attempt();
+      if (isResponseBodyUsable(url, text)) {
+        return text;
+      }
+      lastError = new Error(`Received unusable payload from ${url}`);
     } catch (error) {
       lastError = error;
     }
@@ -423,40 +463,118 @@ function buildCaseShillerAssets(caseShillerCsvBySeriesId) {
   return { assets, sourceSeriesByAssetId };
 }
 
-function parseStooqCsvToMonthMap(csvText) {
-  const monthValueMap = new Map();
-  const lines = String(csvText || "")
-    .replace(/\r\n?/g, "\n")
-    .split("\n")
-    .slice(1);
-  for (const line of lines) {
-    if (!line) continue;
-    const cells = line.split(",");
-    if (cells.length < 5) continue;
-    const month = normalizeMonthToken(String(cells[0]).slice(0, 7));
-    const closeValue = Number(cells[4]);
-    if (!month || !isFiniteNumber(closeValue)) continue;
-    monthValueMap.set(month, closeValue);
+function aggregateDailyRowsToMonthOhlcMap(rows, digits = 6) {
+  const monthStatsByMonth = new Map();
+  const sortedRows = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const row of sortedRows) {
+    if (!row || !Array.isArray(row.tuple) || row.tuple.length < 4) continue;
+    const month = normalizeMonthToken(String(row.date).slice(0, 7));
+    if (!month) continue;
+
+    const openValue = Number(row.tuple[0]);
+    const closeValue = Number(row.tuple[1]);
+    const lowValue = Number(row.tuple[2]);
+    const highValue = Number(row.tuple[3]);
+    if (
+      !isFiniteNumber(openValue) ||
+      !isFiniteNumber(closeValue) ||
+      !isFiniteNumber(lowValue) ||
+      !isFiniteNumber(highValue)
+    ) {
+      continue;
+    }
+
+    const previous = monthStatsByMonth.get(month);
+    if (!previous) {
+      monthStatsByMonth.set(month, {
+        firstDate: row.date,
+        lastDate: row.date,
+        open: openValue,
+        close: closeValue,
+        low: lowValue,
+        high: highValue,
+      });
+      continue;
+    }
+
+    if (row.date < previous.firstDate) {
+      previous.firstDate = row.date;
+      previous.open = openValue;
+    }
+    if (row.date >= previous.lastDate) {
+      previous.lastDate = row.date;
+      previous.close = closeValue;
+    }
+    if (lowValue < previous.low) previous.low = lowValue;
+    if (highValue > previous.high) previous.high = highValue;
   }
+
+  const monthOhlcMap = new Map();
+  for (const [month, stats] of monthStatsByMonth) {
+    const tuple = buildOhlcTuple(stats.open, stats.close, stats.low, stats.high, digits);
+    if (tuple) {
+      monthOhlcMap.set(month, tuple);
+    }
+  }
+  return monthOhlcMap;
+}
+
+function buildMonthCloseMapFromMonthOhlcMap(monthOhlcMap, digits = 6) {
+  const monthValueMap = new Map();
+  monthOhlcMap.forEach((tuple, month) => {
+    const closeValue = getCloseFromOhlcTuple(tuple);
+    if (isFiniteNumber(closeValue)) {
+      monthValueMap.set(month, toRoundedNumber(closeValue, digits));
+    }
+  });
   return monthValueMap;
 }
 
-function parseStooqCsvToMonthOhlcMap(csvText) {
-  const monthOhlcMap = new Map();
+function parseStooqCsvToDailyRows(csvText) {
+  const rows = [];
   const lines = String(csvText || "")
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .slice(1);
+
   for (const line of lines) {
     if (!line) continue;
     const cells = line.split(",");
     if (cells.length < 5) continue;
-    const month = normalizeMonthToken(String(cells[0]).slice(0, 7));
+    const date = normalizeDateToken(cells[0]);
     const tuple = buildOhlcTuple(cells[1], cells[4], cells[3], cells[2], 6);
-    if (!month || !tuple) continue;
-    monthOhlcMap.set(month, tuple);
+    if (!date || !tuple) continue;
+    rows.push({ date, tuple });
   }
-  return monthOhlcMap;
+
+  return rows;
+}
+
+function parseJsonLoose(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    // continue with loose extraction
+  }
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1));
+  } catch (error) {
+    return null;
+  }
+}
+
+function parseStooqCsvToMonthOhlcMap(csvText) {
+  return aggregateDailyRowsToMonthOhlcMap(parseStooqCsvToDailyRows(csvText), 6);
+}
+
+function parseStooqCsvToMonthMap(csvText) {
+  return buildMonthCloseMapFromMonthOhlcMap(parseStooqCsvToMonthOhlcMap(csvText), 6);
 }
 
 function buildStooqAsset(assetId, assetName, legendName, categoryKey, categoryLabel, sourceLabel, csvText) {
@@ -480,50 +598,30 @@ function buildStooqAsset(assetId, assetName, legendName, categoryKey, categoryLa
   };
 }
 
-function parseEastmoneyKlineToMonthMap(jsonText) {
-  const monthValueMap = new Map();
-  let parsed = null;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch (error) {
-    parsed = null;
-  }
+function parseEastmoneyKlineToDailyRows(jsonText) {
+  const rows = [];
+  const parsed = parseJsonLoose(jsonText);
   const klines = parsed?.data?.klines;
-  if (!Array.isArray(klines)) return monthValueMap;
-
-  for (const row of klines) {
-    const cells = String(row || "").split(",");
-    if (cells.length < 3) continue;
-    const month = normalizeMonthToken(String(cells[0]).slice(0, 7));
-    const closeValue = Number(cells[2]);
-    if (!month || !isFiniteNumber(closeValue)) continue;
-    monthValueMap.set(month, closeValue);
-  }
-
-  return monthValueMap;
-}
-
-function parseEastmoneyKlineToMonthOhlcMap(jsonText) {
-  const monthOhlcMap = new Map();
-  let parsed = null;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch (error) {
-    parsed = null;
-  }
-  const klines = parsed?.data?.klines;
-  if (!Array.isArray(klines)) return monthOhlcMap;
+  if (!Array.isArray(klines)) return rows;
 
   for (const row of klines) {
     const cells = String(row || "").split(",");
     if (cells.length < 5) continue;
-    const month = normalizeMonthToken(String(cells[0]).slice(0, 7));
+    const date = normalizeDateToken(cells[0]);
     const tuple = buildOhlcTuple(cells[1], cells[2], cells[4], cells[3], 6);
-    if (!month || !tuple) continue;
-    monthOhlcMap.set(month, tuple);
+    if (!date || !tuple) continue;
+    rows.push({ date, tuple });
   }
 
-  return monthOhlcMap;
+  return rows;
+}
+
+function parseEastmoneyKlineToMonthOhlcMap(jsonText) {
+  return aggregateDailyRowsToMonthOhlcMap(parseEastmoneyKlineToDailyRows(jsonText), 6);
+}
+
+function parseEastmoneyKlineToMonthMap(jsonText) {
+  return buildMonthCloseMapFromMonthOhlcMap(parseEastmoneyKlineToMonthOhlcMap(jsonText), 6);
 }
 
 function buildEquityAssetFromEastmoney(target, jsonText) {

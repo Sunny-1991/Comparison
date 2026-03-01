@@ -217,6 +217,11 @@ node scripts/build-multi-asset-data.mjs
 2. 检测 `multi-asset-data.js` / `multi-asset-data.json` 是否变化
 3. 仅在数据实际变化时自动提交并推送
 
+未完月处理规则（多资产）：
+
+- 权益类资产：按截至当日的日线聚合为“当月月K（开高低收）”
+- 贵金属：按当日最新收盘价更新当月数值（即当月值会随交易日滚动）
+
 ---
 
 ## 9. 部署建议
