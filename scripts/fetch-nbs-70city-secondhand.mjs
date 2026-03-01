@@ -7,8 +7,7 @@ import { fileURLToPath } from "node:url";
 const API_URL = "https://data.stats.gov.cn/easyquery.htm";
 const DB_CODE = "csyd";
 const INDICATOR_ID = "A010807";
-const DEFAULT_OUTPUT_MIN_MONTH = "2008-01";
-const DEFAULT_OUTPUT_BASE_MONTH = "2008-01";
+const DEFAULT_SCAN_START_YEAR = 2000;
 const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RETRIES = 5;
 
@@ -183,29 +182,44 @@ async function main() {
   const __dirname = path.dirname(__filename);
 
   const outputPath = process.argv[2] || path.resolve(__dirname, "..", "house-price-data-nbs-70.js");
-  const outputMinMonth =
-    normalizeMonthToken(process.env.NBS_OUTPUT_MIN_MONTH) || DEFAULT_OUTPUT_MIN_MONTH;
-  const outputBaseMonth =
-    normalizeMonthToken(process.env.NBS_OUTPUT_BASE_MONTH) || DEFAULT_OUTPUT_BASE_MONTH;
+  const requestedOutputMinMonth = normalizeMonthToken(process.env.NBS_OUTPUT_MIN_MONTH);
+  const requestedOutputBaseMonth = normalizeMonthToken(process.env.NBS_OUTPUT_BASE_MONTH);
   const requestedMaxMonth =
     normalizeMonthToken(process.env.NBS_OUTPUT_MAX_MONTH) || formatCurrentMonthUTC();
+  const scanStartYearRaw = Number(process.env.NBS_SCAN_START_YEAR);
+  const scanStartYear = Number.isInteger(scanStartYearRaw)
+    ? scanStartYearRaw
+    : DEFAULT_SCAN_START_YEAR;
   const outputJsonPath = outputPath.replace(/\.js$/i, ".json");
-  if (!outputMinMonth || !outputBaseMonth || !requestedMaxMonth) {
+  if (!requestedMaxMonth) {
     throw new Error("Invalid month settings. Expected YYYY-MM format.");
   }
-  if (outputMinMonth > requestedMaxMonth) {
-    throw new Error(`NBS_OUTPUT_MIN_MONTH (${outputMinMonth}) cannot be later than max month (${requestedMaxMonth}).`);
+  if (requestedOutputMinMonth && requestedOutputMinMonth > requestedMaxMonth) {
+    throw new Error(`NBS_OUTPUT_MIN_MONTH (${requestedOutputMinMonth}) cannot be later than max month (${requestedMaxMonth}).`);
   }
-  if (outputBaseMonth < outputMinMonth || outputBaseMonth > requestedMaxMonth) {
-    throw new Error(`NBS_OUTPUT_BASE_MONTH (${outputBaseMonth}) must be within [${outputMinMonth}, ${requestedMaxMonth}].`);
+  if (
+    requestedOutputBaseMonth &&
+    requestedOutputMinMonth &&
+    requestedOutputBaseMonth < requestedOutputMinMonth
+  ) {
+    throw new Error(`NBS_OUTPUT_BASE_MONTH (${requestedOutputBaseMonth}) cannot be earlier than NBS_OUTPUT_MIN_MONTH (${requestedOutputMinMonth}).`);
+  }
+  if (requestedOutputBaseMonth && requestedOutputBaseMonth > requestedMaxMonth) {
+    throw new Error(`NBS_OUTPUT_BASE_MONTH (${requestedOutputBaseMonth}) cannot be later than max month (${requestedMaxMonth}).`);
   }
 
-  const startYear = Number(outputMinMonth.slice(0, 4));
+  const startYear = requestedOutputMinMonth
+    ? Number(requestedOutputMinMonth.slice(0, 4))
+    : scanStartYear;
   const endYear = Number(requestedMaxMonth.slice(0, 4));
+  if (!Number.isInteger(startYear) || !Number.isInteger(endYear) || startYear > endYear) {
+    throw new Error(`Invalid scan year range: ${startYear} -> ${endYear}`);
+  }
 
   const cityOrder = [];
   const cityNameByCode = new Map();
   const momByCity = new Map();
+  let earliestMonthFromApi = null;
   let latestMonthFromApi = null;
 
   for (let year = startYear; year <= endYear; year += 1) {
@@ -232,7 +246,8 @@ async function main() {
       if (!regCode || EXCLUDED_REG_CODES.has(regCode) || !sjCode) return;
 
       const month = codeToMonth(sjCode);
-      if (!month || month < outputMinMonth || month > requestedMaxMonth) return;
+      if (!month || month > requestedMaxMonth) return;
+      if (requestedOutputMinMonth && month < requestedOutputMinMonth) return;
 
       const value = parseNodeValue(node);
       if (!isFiniteNumber(value)) return;
@@ -244,16 +259,27 @@ async function main() {
       if (!latestMonthFromApi || month > latestMonthFromApi) {
         latestMonthFromApi = month;
       }
+      if (!earliestMonthFromApi || month < earliestMonthFromApi) {
+        earliestMonthFromApi = month;
+      }
     });
 
     await sleep(120);
   }
 
-  if (!latestMonthFromApi) {
-    throw new Error("Cannot determine latest month from NBS API.");
+  if (!earliestMonthFromApi || !latestMonthFromApi) {
+    throw new Error("Cannot determine available month range from NBS API.");
   }
 
+  const outputMinMonth = requestedOutputMinMonth || earliestMonthFromApi;
+  const outputBaseMonth = requestedOutputBaseMonth || outputMinMonth;
   const outputMaxMonth = minMonth(requestedMaxMonth, latestMonthFromApi);
+  if (outputMinMonth > outputMaxMonth) {
+    throw new Error(`Output min month (${outputMinMonth}) cannot be later than max month (${outputMaxMonth}).`);
+  }
+  if (outputBaseMonth < outputMinMonth || outputBaseMonth > outputMaxMonth) {
+    throw new Error(`NBS_OUTPUT_BASE_MONTH (${outputBaseMonth}) must be within [${outputMinMonth}, ${outputMaxMonth}].`);
+  }
   const months = enumerateMonths(outputMinMonth, outputMaxMonth);
   const baseMonthIndex = months.indexOf(outputBaseMonth);
   if (baseMonthIndex < 0) {
@@ -315,7 +341,11 @@ async function main() {
     dbcode: DB_CODE,
     cityCount: cities.length,
     requestedMaxMonth,
+    requestedOutputMinMonth: requestedOutputMinMonth || null,
+    requestedOutputBaseMonth: requestedOutputBaseMonth || null,
     outputMaxMonth,
+    outputMinMonth,
+    earliestMonthFromApi,
     latestMonthFromApi,
     excludedRegCodes: [...EXCLUDED_REG_CODES],
   };
