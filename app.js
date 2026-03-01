@@ -1262,15 +1262,6 @@ function bindChartWheelToPageScroll() {
   );
 }
 
-function toggleCityVisibility(cityName) {
-  if (!cityName) return;
-  if (uiState.hiddenCityNames.has(cityName)) {
-    uiState.hiddenCityNames.delete(cityName);
-  } else {
-    uiState.hiddenCityNames.add(cityName);
-  }
-}
-
 function readSelectedCityIds() {
   return [...cityListEl.querySelectorAll('input[type="checkbox"]:checked')].map((el) => el.value);
 }
@@ -4342,9 +4333,12 @@ function bindEvents() {
 
   chart.on("click", (params) => {
     if (params?.componentType === "series" && params?.seriesName) {
-      toggleCityVisibility(params.seriesName);
-      render();
-      return;
+      chart.dispatchAction({
+        type: "legendToggleSelect",
+        name: params.seriesName,
+      });
+      chart.dispatchAction({ type: "hideTip" });
+      chart.dispatchAction({ type: "updateAxisPointer", currTrigger: "leave" });
     }
   });
 
@@ -4355,7 +4349,6 @@ function bindEvents() {
       if (!selected) hidden.add(name);
     }
     uiState.hiddenCityNames = hidden;
-    render();
   });
 
   if (timeZoomStartEl && timeZoomEndEl) {
