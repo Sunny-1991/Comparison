@@ -222,7 +222,7 @@ In-progress month rules (multi-asset):
 
 - Equities: aggregate daily candles into a month-to-date monthly candle (OHLC)
 - Metals: use the latest available daily close as the current month value
-- Timeline and month selectors: auto-extend to the current month, even when the month is still in progress
+- Timeline and month selectors: include the current month only when at least one asset already has a valid value in that month
 
 ---
 

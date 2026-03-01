@@ -375,7 +375,30 @@ function enumerateMonths(startMonth, endMonth) {
   return months;
 }
 
-function ensureSourceTimelineUpToCurrentMonth(data) {
+function getLatestMonthWithAnyCityValue(dates, valuesById) {
+  if (!Array.isArray(dates) || !valuesById || typeof valuesById !== "object") return "";
+  const monthTokens = dates.map((item) => normalizeMonthToken(item));
+  let latest = "";
+
+  Object.values(valuesById).forEach((series) => {
+    if (!Array.isArray(series)) return;
+    const limit = Math.min(series.length, monthTokens.length);
+    for (let index = 0; index < limit; index += 1) {
+      const rawValue = series[index];
+      if (rawValue === null || rawValue === undefined || rawValue === "") continue;
+      const value = Number(rawValue);
+      if (!isFiniteNumber(value)) continue;
+      const month = monthTokens[index];
+      if (month && (!latest || month > latest)) {
+        latest = month;
+      }
+    }
+  });
+
+  return latest;
+}
+
+function ensureSourceTimelineByDataAvailability(data) {
   if (!isUsableSourceData(data)) return data;
 
   const normalizedDates = (Array.isArray(data.dates) ? data.dates : [])
@@ -384,13 +407,14 @@ function ensureSourceTimelineUpToCurrentMonth(data) {
   if (normalizedDates.length === 0) return data;
 
   const startMonth = normalizedDates[0];
-  let endMonth = normalizedDates[normalizedDates.length - 1];
+  let endMonth =
+    getLatestMonthWithAnyCityValue(normalizedDates, data.values) ||
+    normalizedDates[normalizedDates.length - 1];
   const nowMonth = currentMonthToken();
-  if (endMonth < nowMonth) {
-    endMonth = nowMonth;
-  } else if (endMonth > nowMonth) {
+  if (endMonth > nowMonth) {
     endMonth = nowMonth;
   }
+  if (endMonth < startMonth) endMonth = startMonth;
 
   const timeline = enumerateMonths(startMonth, endMonth);
   if (timeline.length === 0) return data;
@@ -493,7 +517,7 @@ function isUsableSourceData(data) {
 
 function listAvailableSources() {
   return SOURCE_CONFIGS.filter((source) => {
-    source.data = ensureSourceTimelineUpToCurrentMonth(source.data);
+    source.data = ensureSourceTimelineByDataAvailability(source.data);
     return isUsableSourceData(source.data);
   });
 }
@@ -2692,6 +2716,8 @@ function makeOption(
     visibleStartIndex = visibleEndIndex;
     visibleEndIndex = temp;
   }
+  const visibleStartToken = axisMonths[visibleStartIndex];
+  const visibleEndToken = axisMonths[visibleEndIndex];
   const selectedMap = Object.fromEntries(
     rendered.map((item) => [item.name, !hiddenCityNames.has(item.name)]),
   );
@@ -2880,8 +2906,8 @@ function makeOption(
       type: "category",
       boundaryGap: false,
       data: axisMonths,
-      min: visibleStartIndex,
-      max: visibleEndIndex,
+      min: visibleStartToken || undefined,
+      max: visibleEndToken || undefined,
       axisTick: {
         show: responsiveChartWidth > 760,
         alignWithLabel: true,

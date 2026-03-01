@@ -301,19 +301,41 @@ function enumerateMonths(startMonth, endMonth) {
   return months;
 }
 
-function ensureMonthlyTimelineUpToCurrent(data) {
+function getLatestMonthWithAnyValue(dates, valuesById) {
+  if (!Array.isArray(dates) || !valuesById || typeof valuesById !== "object") return "";
+  const monthTokens = dates.map((item) => normalizeMonthToken(item));
+  let latest = "";
+
+  Object.values(valuesById).forEach((series) => {
+    if (!Array.isArray(series)) return;
+    const limit = Math.min(series.length, monthTokens.length);
+    for (let index = 0; index < limit; index += 1) {
+      const rawValue = series[index];
+      if (rawValue === null || rawValue === undefined || rawValue === "") continue;
+      const value = Number(rawValue);
+      if (!isFiniteNumber(value)) continue;
+      const month = monthTokens[index];
+      if (month && (!latest || month > latest)) {
+        latest = month;
+      }
+    }
+  });
+
+  return latest;
+}
+
+function ensureMonthlyTimelineByDataAvailability(data) {
   if (!data || typeof data !== "object") return data;
   const dates = Array.isArray(data.dates) ? data.dates.map((item) => normalizeMonthToken(item)).filter(Boolean) : [];
   if (dates.length === 0) return data;
 
   const startMonth = dates[0];
-  let endMonth = dates[dates.length - 1];
+  let endMonth = getLatestMonthWithAnyValue(dates, data.values) || dates[dates.length - 1];
   const nowMonth = currentMonthUtc();
-  if (endMonth < nowMonth) {
-    endMonth = nowMonth;
-  } else if (endMonth > nowMonth) {
+  if (endMonth > nowMonth) {
     endMonth = nowMonth;
   }
+  if (endMonth < startMonth) endMonth = startMonth;
 
   const normalizedDates = enumerateMonths(startMonth, endMonth);
   const expectedLength = normalizedDates.length;
@@ -1848,7 +1870,7 @@ function isUsableMultiAssetDataset(data) {
 }
 
 function normalizeMultiAssetDataset(inputData) {
-  const data = ensureMonthlyTimelineUpToCurrent(JSON.parse(JSON.stringify(inputData)));
+  const data = ensureMonthlyTimelineByDataAvailability(JSON.parse(JSON.stringify(inputData)));
   const months = Array.isArray(data.dates) ? data.dates : [];
   const values = data.values && typeof data.values === "object" ? data.values : {};
   const ohlcValues = data.ohlcValues && typeof data.ohlcValues === "object" ? data.ohlcValues : {};
@@ -2036,7 +2058,6 @@ async function buildMultiAssetDataset() {
     }
   });
   const nowMonth = currentMonthUtc();
-  if (endMonth < nowMonth) endMonth = nowMonth;
   if (endMonth > nowMonth) endMonth = nowMonth;
 
   const dates = enumerateMonths(BASE_START_MONTH, endMonth);
@@ -2650,6 +2671,8 @@ function makeOption(rendered, months, viewportStartMonth, viewportEndMonth) {
     visibleStartIndex = visibleEndIndex;
     visibleEndIndex = temp;
   }
+  const visibleStartToken = axisMonths[visibleStartIndex];
+  const visibleEndToken = axisMonths[visibleEndIndex];
 
   const legendLabelMap = new Map(
     rendered.map((item) => [item.seriesName || item.id || item.name, item.name || "-"]),
@@ -2904,8 +2927,8 @@ function makeOption(rendered, months, viewportStartMonth, viewportEndMonth) {
       type: "category",
       boundaryGap: false,
       data: axisMonths,
-      min: visibleStartIndex,
-      max: visibleEndIndex,
+      min: visibleStartToken || undefined,
+      max: visibleEndToken || undefined,
       axisTick: {
         show: responsiveChartWidth > 760,
         alignWithLabel: true,
