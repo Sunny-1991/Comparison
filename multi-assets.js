@@ -301,6 +301,62 @@ function enumerateMonths(startMonth, endMonth) {
   return months;
 }
 
+function ensureMonthlyTimelineUpToCurrent(data) {
+  if (!data || typeof data !== "object") return data;
+  const dates = Array.isArray(data.dates) ? data.dates.map((item) => normalizeMonthToken(item)).filter(Boolean) : [];
+  if (dates.length === 0) return data;
+
+  const startMonth = dates[0];
+  let endMonth = dates[dates.length - 1];
+  const nowMonth = currentMonthUtc();
+  if (endMonth < nowMonth) {
+    endMonth = nowMonth;
+  } else if (endMonth > nowMonth) {
+    endMonth = nowMonth;
+  }
+
+  const normalizedDates = enumerateMonths(startMonth, endMonth);
+  const expectedLength = normalizedDates.length;
+  data.dates = normalizedDates;
+
+  if (!data.values || typeof data.values !== "object") {
+    data.values = {};
+  }
+  if (!data.ohlcValues || typeof data.ohlcValues !== "object") {
+    data.ohlcValues = {};
+  }
+
+  const padList = (list, fillValue = null) => {
+    const next = Array.isArray(list) ? list.slice(0, expectedLength) : [];
+    while (next.length < expectedLength) next.push(fillValue);
+    return next;
+  };
+
+  Object.keys(data.values).forEach((assetId) => {
+    data.values[assetId] = padList(data.values[assetId], null);
+  });
+
+  Object.keys(data.ohlcValues).forEach((assetId) => {
+    data.ohlcValues[assetId] = padList(data.ohlcValues[assetId], null);
+  });
+
+  if (Array.isArray(data.assets)) {
+    data.assets.forEach((asset) => {
+      if (!asset || !asset.id) return;
+      if (!Array.isArray(data.values[asset.id])) {
+        data.values[asset.id] = Array(expectedLength).fill(null);
+      } else {
+        data.values[asset.id] = padList(data.values[asset.id], null);
+      }
+      if (Array.isArray(data.ohlcValues[asset.id])) {
+        data.ohlcValues[asset.id] = padList(data.ohlcValues[asset.id], null);
+      }
+    });
+  }
+
+  return data;
+}
+
 function formatMonthZh(month) {
   const token = normalizeMonthToken(month);
   const matched = token.match(/^(\d{4})-(\d{2})$/);
@@ -1792,7 +1848,7 @@ function isUsableMultiAssetDataset(data) {
 }
 
 function normalizeMultiAssetDataset(inputData) {
-  const data = JSON.parse(JSON.stringify(inputData));
+  const data = ensureMonthlyTimelineUpToCurrent(JSON.parse(JSON.stringify(inputData)));
   const months = Array.isArray(data.dates) ? data.dates : [];
   const values = data.values && typeof data.values === "object" ? data.values : {};
   const ohlcValues = data.ohlcValues && typeof data.ohlcValues === "object" ? data.ohlcValues : {};
@@ -1980,6 +2036,7 @@ async function buildMultiAssetDataset() {
     }
   });
   const nowMonth = currentMonthUtc();
+  if (endMonth < nowMonth) endMonth = nowMonth;
   if (endMonth > nowMonth) endMonth = nowMonth;
 
   const dates = enumerateMonths(BASE_START_MONTH, endMonth);

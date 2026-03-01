@@ -332,6 +332,94 @@ function normalizeMonthToken(value) {
   return text;
 }
 
+function currentMonthToken() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function enumerateMonths(startMonth, endMonth) {
+  const startToken = normalizeMonthToken(startMonth);
+  const endToken = normalizeMonthToken(endMonth);
+  const startMatched = startToken.match(/^(\d{4})-(\d{2})$/);
+  const endMatched = endToken.match(/^(\d{4})-(\d{2})$/);
+  if (!startMatched || !endMatched) return [];
+
+  const startYear = Number(startMatched[1]);
+  const startMonthNumber = Number(startMatched[2]);
+  const endYear = Number(endMatched[1]);
+  const endMonthNumber = Number(endMatched[2]);
+  if (
+    !Number.isFinite(startYear) ||
+    !Number.isFinite(startMonthNumber) ||
+    !Number.isFinite(endYear) ||
+    !Number.isFinite(endMonthNumber)
+  ) {
+    return [];
+  }
+
+  if (startYear > endYear || (startYear === endYear && startMonthNumber > endMonthNumber)) {
+    return [];
+  }
+
+  const months = [];
+  let year = startYear;
+  let month = startMonthNumber;
+  while (year < endYear || (year === endYear && month <= endMonthNumber)) {
+    months.push(`${year}-${String(month).padStart(2, "0")}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return months;
+}
+
+function ensureSourceTimelineUpToCurrentMonth(data) {
+  if (!isUsableSourceData(data)) return data;
+
+  const normalizedDates = (Array.isArray(data.dates) ? data.dates : [])
+    .map((item) => normalizeMonthToken(item))
+    .filter((token) => /^\d{4}-\d{2}$/.test(token));
+  if (normalizedDates.length === 0) return data;
+
+  const startMonth = normalizedDates[0];
+  let endMonth = normalizedDates[normalizedDates.length - 1];
+  const nowMonth = currentMonthToken();
+  if (endMonth < nowMonth) {
+    endMonth = nowMonth;
+  } else if (endMonth > nowMonth) {
+    endMonth = nowMonth;
+  }
+
+  const timeline = enumerateMonths(startMonth, endMonth);
+  if (timeline.length === 0) return data;
+
+  const expectedLength = timeline.length;
+  data.dates = timeline;
+
+  if (!data.values || typeof data.values !== "object") {
+    data.values = {};
+  }
+
+  const padSeries = (series) => {
+    const next = Array.isArray(series) ? series.slice(0, expectedLength) : [];
+    while (next.length < expectedLength) next.push(null);
+    return next;
+  };
+
+  Object.keys(data.values).forEach((key) => {
+    data.values[key] = padSeries(data.values[key]);
+  });
+
+  (data.cities || []).forEach((city) => {
+    if (!city || !city.id) return;
+    data.values[city.id] = padSeries(data.values[city.id]);
+  });
+
+  return data;
+}
+
 function normalizeThemeMode(value) {
   return value === THEME_MODE_DARK ? THEME_MODE_DARK : THEME_MODE_LIGHT;
 }
@@ -404,7 +492,10 @@ function isUsableSourceData(data) {
 }
 
 function listAvailableSources() {
-  return SOURCE_CONFIGS.filter((source) => isUsableSourceData(source.data));
+  return SOURCE_CONFIGS.filter((source) => {
+    source.data = ensureSourceTimelineUpToCurrentMonth(source.data);
+    return isUsableSourceData(source.data);
+  });
 }
 
 function findSourceByKey(sourceKey) {
@@ -1149,7 +1240,7 @@ function buildMonthSelects(dates) {
   endMonthEl.innerHTML = options;
 
   const defaultStart = dates.includes("2008-01") ? "2008-01" : dates[0];
-  const defaultEnd = dates.includes("2026-01") ? "2026-01" : dates[dates.length - 1];
+  const defaultEnd = dates[dates.length - 1];
   startMonthEl.value = defaultStart;
   endMonthEl.value = defaultEnd;
   syncTimeZoomWidgetFromMonthSelects();

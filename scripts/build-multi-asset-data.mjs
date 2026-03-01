@@ -801,6 +801,7 @@ async function main() {
   for (const month of latestMonthBySources) {
     if (!endMonth || month > endMonth) endMonth = month;
   }
+  if (endMonth < nowMonth) endMonth = nowMonth;
   if (endMonth > nowMonth) endMonth = nowMonth;
 
   const months = enumerateMonths(startMonth, endMonth);
