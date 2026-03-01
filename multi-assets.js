@@ -209,6 +209,7 @@ const METAL_FIXED_COLORS = Object.freeze({
     metal_silver_spot_usd: "#c4d0db",
   }),
 });
+const MIN_DISTINCT_SERIES_COLOR_DISTANCE = 110;
 
 const themeModeEl = document.getElementById("themeMode");
 const assetListEl = document.getElementById("assetList");
@@ -2627,6 +2628,240 @@ function getAssetSeriesColor(asset, index) {
   return getSeriesColor(index);
 }
 
+function hslToRgb(hue, saturationPct, lightnessPct) {
+  const h = ((Number(hue) % 360) + 360) % 360;
+  const s = Math.max(0, Math.min(100, Number(saturationPct))) / 100;
+  const l = Math.max(0, Math.min(100, Number(lightnessPct))) / 100;
+
+  if (s === 0) {
+    const gray = Math.round(l * 255);
+    return { r: gray, g: gray, b: gray };
+  }
+
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let rPrime = 0;
+  let gPrime = 0;
+  let bPrime = 0;
+
+  if (h < 60) {
+    rPrime = c;
+    gPrime = x;
+  } else if (h < 120) {
+    rPrime = x;
+    gPrime = c;
+  } else if (h < 180) {
+    gPrime = c;
+    bPrime = x;
+  } else if (h < 240) {
+    gPrime = x;
+    bPrime = c;
+  } else if (h < 300) {
+    rPrime = x;
+    bPrime = c;
+  } else {
+    rPrime = c;
+    bPrime = x;
+  }
+
+  return {
+    r: Math.round((rPrime + m) * 255),
+    g: Math.round((gPrime + m) * 255),
+    b: Math.round((bPrime + m) * 255),
+  };
+}
+
+function parseChartColorToRgb(color) {
+  const text = String(color || "").trim();
+  if (!text) return null;
+
+  const hex = text.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const value = hex[1];
+    if (value.length === 3) {
+      return {
+        r: parseInt(value[0] + value[0], 16),
+        g: parseInt(value[1] + value[1], 16),
+        b: parseInt(value[2] + value[2], 16),
+      };
+    }
+    return {
+      r: parseInt(value.slice(0, 2), 16),
+      g: parseInt(value.slice(2, 4), 16),
+      b: parseInt(value.slice(4, 6), 16),
+    };
+  }
+
+  const rgb = text.match(/^rgba?\((.+)\)$/i);
+  if (rgb) {
+    const parts = rgb[1].split(",").map((item) => Number(item.trim()));
+    if (parts.length >= 3 && parts.slice(0, 3).every((item) => Number.isFinite(item))) {
+      return {
+        r: Math.max(0, Math.min(255, Math.round(parts[0]))),
+        g: Math.max(0, Math.min(255, Math.round(parts[1]))),
+        b: Math.max(0, Math.min(255, Math.round(parts[2]))),
+      };
+    }
+  }
+
+  const hsl = text.match(/^hsla?\((.+)\)$/i);
+  if (hsl) {
+    const parts = hsl[1].split(",").map((item) => item.trim());
+    if (parts.length >= 3) {
+      const hue = Number(parts[0].replace(/deg$/i, ""));
+      const saturation = Number(parts[1].replace("%", ""));
+      const lightness = Number(parts[2].replace("%", ""));
+      if (
+        Number.isFinite(hue) &&
+        Number.isFinite(saturation) &&
+        Number.isFinite(lightness)
+      ) {
+        return hslToRgb(hue, saturation, lightness);
+      }
+    }
+  }
+
+  return null;
+}
+
+function calcColorDistance(colorA, colorB) {
+  if (!colorA || !colorB) return 0;
+  const rMean = (colorA.r + colorB.r) / 2;
+  const r = colorA.r - colorB.r;
+  const g = colorA.g - colorB.g;
+  const b = colorA.b - colorB.b;
+  return Math.sqrt(
+    (((512 + rMean) * r * r) / 256) +
+      (4 * g * g) +
+      (((767 - rMean) * b * b) / 256),
+  );
+}
+
+function getMinAssignedColorDistance(rgbColor, assignedColors) {
+  if (!rgbColor || assignedColors.length === 0) return Number.POSITIVE_INFINITY;
+  let minDistance = Number.POSITIVE_INFINITY;
+  assignedColors.forEach((assigned) => {
+    const distance = calcColorDistance(rgbColor, assigned.rgb);
+    if (distance < minDistance) minDistance = distance;
+  });
+  return minDistance;
+}
+
+function buildDistinctAssetColorPool(seedColors, themeMode, requiredCount = 0) {
+  const candidates = [];
+  const unique = new Set();
+  const pushUnique = (color) => {
+    const text = String(color || "").trim();
+    if (!text) return;
+    const key = text.toLowerCase();
+    if (unique.has(key)) return;
+    unique.add(key);
+    candidates.push(text);
+  };
+
+  seedColors.forEach(pushUnique);
+  (SERIES_COLORS[themeMode] || []).forEach(pushUnique);
+  const fixedMap = METAL_FIXED_COLORS[themeMode] || METAL_FIXED_COLORS[THEME_MODE_LIGHT];
+  Object.values(fixedMap).forEach(pushUnique);
+
+  const extraCount = Math.max(48, requiredCount * 10);
+  for (let index = 0; index < extraCount; index += 1) {
+    const hue = (index * 137.508 + (themeMode === THEME_MODE_DARK ? 22 : 9)) % 360;
+    const saturation = themeMode === THEME_MODE_DARK ? 76 : 70;
+    const lightness = themeMode === THEME_MODE_DARK ? 64 : 42;
+    pushUnique(`hsl(${hue.toFixed(2)}, ${saturation}%, ${lightness}%)`);
+  }
+  return candidates;
+}
+
+function pickDistinctColor(preferredColor, assignedColors, candidatePool, minDistance) {
+  const preferredText = String(preferredColor || "").trim();
+  const preferredRgb = parseChartColorToRgb(preferredText);
+
+  if (assignedColors.length === 0) {
+    return preferredText || candidatePool[0] || "";
+  }
+
+  if (
+    preferredRgb &&
+    getMinAssignedColorDistance(preferredRgb, assignedColors) >= minDistance
+  ) {
+    return preferredText;
+  }
+
+  let bestThresholdCandidate = null;
+  let bestFallbackCandidate = null;
+
+  candidatePool.forEach((candidate, index) => {
+    const candidateText = String(candidate || "").trim();
+    const candidateRgb = parseChartColorToRgb(candidateText);
+    if (!candidateRgb) return;
+
+    const nearestDistance = getMinAssignedColorDistance(candidateRgb, assignedColors);
+    const shiftDistance = preferredRgb ? calcColorDistance(candidateRgb, preferredRgb) : index;
+    const score = { candidateText, nearestDistance, shiftDistance, index };
+
+    if (nearestDistance >= minDistance) {
+      if (
+        !bestThresholdCandidate ||
+        shiftDistance < bestThresholdCandidate.shiftDistance - 0.001 ||
+        (
+          Math.abs(shiftDistance - bestThresholdCandidate.shiftDistance) <= 0.001 &&
+          nearestDistance > bestThresholdCandidate.nearestDistance + 0.001
+        )
+      ) {
+        bestThresholdCandidate = score;
+      }
+      return;
+    }
+
+    if (
+      !bestFallbackCandidate ||
+      nearestDistance > bestFallbackCandidate.nearestDistance + 0.001 ||
+      (
+        Math.abs(nearestDistance - bestFallbackCandidate.nearestDistance) <= 0.001 &&
+        shiftDistance < bestFallbackCandidate.shiftDistance - 0.001
+      )
+    ) {
+      bestFallbackCandidate = score;
+    }
+  });
+
+  if (bestThresholdCandidate) return bestThresholdCandidate.candidateText;
+  if (bestFallbackCandidate) return bestFallbackCandidate.candidateText;
+  return preferredText || candidatePool[0] || "";
+}
+
+function ensureDistinctAssetLineColors(
+  rendered,
+  minDistance = MIN_DISTINCT_SERIES_COLOR_DISTANCE,
+) {
+  if (!Array.isArray(rendered) || rendered.length < 2) return;
+  const themeMode = getCurrentThemeMode();
+  const seedColors = rendered.map((item) => item.color).filter(Boolean);
+  const candidatePool = buildDistinctAssetColorPool(seedColors, themeMode, rendered.length);
+  const assignedColors = [];
+
+  rendered.forEach((item, index) => {
+    const fallbackColor = candidatePool[index % Math.max(candidatePool.length, 1)] || "";
+    const preferredColor = String(item?.color || fallbackColor).trim();
+    const nextColor = pickDistinctColor(
+      preferredColor,
+      assignedColors,
+      candidatePool,
+      minDistance,
+    );
+    if (nextColor) {
+      item.color = nextColor;
+    }
+    const parsed = parseChartColorToRgb(item.color);
+    if (parsed) {
+      assignedColors.push({ rgb: parsed });
+    }
+  });
+}
+
 function makeOption(rendered, months, viewportStartMonth, viewportEndMonth) {
   const axisMonths = months.map((month) => normalizeMonthToken(month));
   const monthToAxisMap = new Map();
@@ -3324,6 +3559,10 @@ function render() {
     item.endLabelMain = item.name;
     item.endLabelSub = "";
   });
+
+  if (rendered.length >= 2) {
+    ensureDistinctAssetLineColors(rendered);
+  }
 
   if (rendered.length === 0) {
     chart.clear();
