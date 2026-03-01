@@ -2205,7 +2205,7 @@ function drawOverlaySummaryOnCanvas(ctx, canvasWidth, canvasHeight, exportContex
   ctx.font = `400 ${noteFontSize}px ${fontFamily}`;
   ctx.textAlign = "left";
   ctx.fillStyle = titleColor;
-  const noteLeftX = tableX - noteFontSize * 3.5;
+  const noteLeftX = tableX - noteFontSize * 1.5;
   ctx.fillText(`*数据来源：${sourceNoteText}`, noteLeftX, cursorY);
   ctx.fillText(
     "*图表制作：公众号 - 一座独立屋",

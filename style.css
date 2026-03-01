@@ -1321,7 +1321,7 @@ body.theme-dark .timeline-zoom-input::-moz-range-thumb {
 }
 
 .page:not(.page-multi-assets) .chart-stats-note {
-  margin-left: -2em;
+  margin-left: -1.5em;
 }
 
 .chart-stats-source-tag {
@@ -1686,6 +1686,10 @@ thead th {
     margin-left: -1em;
   }
 
+  .page:not(.page-multi-assets) .chart-stats-note {
+    margin-left: -1.1em;
+  }
+
   table {
     min-width: 660px;
   }
@@ -1835,6 +1839,10 @@ thead th {
   .chart-stats-note {
     font-size: 0.58rem;
     margin-left: -1em;
+  }
+
+  .page:not(.page-multi-assets) .chart-stats-note {
+    margin-left: -1.1em;
   }
 
   table {
