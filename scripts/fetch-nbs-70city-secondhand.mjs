@@ -74,16 +74,34 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function requestJson(params, attempt = 1) {
-  const query = new URLSearchParams({
-    ...params,
-    k1: String(Date.now() + Math.floor(Math.random() * 100000)),
-  });
-  const url = `${API_URL}?${query.toString()}`;
+function stripUrlProtocol(url) {
+  return String(url || "").replace(/^https?:\/\//i, "");
+}
 
+function parseJsonResponseText(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    // fall through
+  }
+
+  const marker = "Markdown Content:";
+  const markerIndex = text.lastIndexOf(marker);
+  if (markerIndex < 0) return null;
+  const candidate = text.slice(markerIndex + marker.length).trim();
+  if (!candidate) return null;
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchJsonFromUrl(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
   try {
     const response = await fetch(url, {
       method: "GET",
@@ -99,14 +117,38 @@ async function requestJson(params, attempt = 1) {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    return await response.json();
-  } catch (error) {
-    if (attempt >= MAX_RETRIES) throw error;
-    await sleep(380 * attempt);
-    return requestJson(params, attempt + 1);
+    const text = await response.text();
+    const parsed = parseJsonResponseText(text);
+    if (!parsed) {
+      throw new Error(`unable to parse JSON payload from ${url}`);
+    }
+    return parsed;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function requestJson(params, attempt = 1) {
+  const query = new URLSearchParams({
+    ...params,
+    k1: String(Date.now() + Math.floor(Math.random() * 100000)),
+  });
+  const directUrl = `${API_URL}?${query.toString()}`;
+  const fallbackUrl = `https://r.jina.ai/http://${stripUrlProtocol(directUrl)}`;
+  const candidates = [directUrl, fallbackUrl];
+
+  let lastError = null;
+  for (const url of candidates) {
+    try {
+      return await fetchJsonFromUrl(url);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (attempt >= MAX_RETRIES) throw lastError || new Error("request failed");
+  await sleep(380 * attempt);
+  return requestJson(params, attempt + 1);
 }
 
 function parseNodeValue(node) {
