@@ -798,6 +798,11 @@ button:hover {
   padding-right: 3px;
 }
 
+.city-search {
+  width: 100%;
+  margin-top: 9px;
+}
+
 .city-list--three-cols {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -858,6 +863,10 @@ button:hover {
   cursor: not-allowed;
   filter: grayscale(1);
   opacity: 0.62;
+}
+
+.city-item-hidden-by-search {
+  display: none;
 }
 
 .date-grid {

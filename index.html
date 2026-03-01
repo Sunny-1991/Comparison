@@ -10,12 +10,12 @@
       href="https://fonts.googleapis.com/css2?family=Marcellus&family=Noto+Sans+SC:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=20260301-note-left-ref" />
+    <link rel="stylesheet" href="style.css?v=20260301-city-search-nbs" />
     <script defer src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script defer src="house-price-data.js"></script>
     <script defer src="house-price-data-nbs-70.js"></script>
-    <script defer src="app.js?v=20260301-note-left-ref"></script>
+    <script defer src="app.js?v=20260301-city-search-nbs"></script>
   </head>
   <body>
     <main class="page">
@@ -58,6 +58,14 @@
                 <button id="clearAllBtn" type="button">清空</button>
               </div>
             </div>
+            <input
+              id="citySearch"
+              class="asset-search city-search"
+              type="search"
+              placeholder="搜索城市（仅统计局70城）"
+              aria-label="搜索城市"
+              hidden
+            />
             <div id="cityList" class="city-list" aria-label="城市选择"></div>
           </div>
 

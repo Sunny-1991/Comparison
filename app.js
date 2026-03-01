@@ -23,6 +23,7 @@ const SOURCE_CONFIGS = [
 ];
 
 const cityListEl = document.getElementById("cityList");
+const citySearchEl = document.getElementById("citySearch");
 const startMonthEl = document.getElementById("startMonth");
 const endMonthEl = document.getElementById("endMonth");
 const dataSourceEl = document.getElementById("dataSource");
@@ -593,9 +594,37 @@ function applyDataSource(sourceKey) {
     ? previousSelectedCityNames.filter((name) => currentCityNameSet.has(name))
     : source.defaultSelectedNames;
   buildCityControls(raw.cities, nextSelectedNames);
+  syncCitySearchUi(isNbsSource);
   buildMonthSelects(raw.dates);
   refreshCompareSourceControl({ keepSelection: false });
   return true;
+}
+
+function normalizeCitySearchKeyword(keyword) {
+  return String(keyword || "").trim().toLowerCase();
+}
+
+function filterCityListByKeyword(keyword) {
+  const normalizedKeyword = normalizeCitySearchKeyword(keyword);
+  const cityItems = [...cityListEl.querySelectorAll(".city-item")];
+
+  cityItems.forEach((label) => {
+    const cityName = String(label.dataset.cityName || label.textContent || "")
+      .trim()
+      .toLowerCase();
+    const matched = !normalizedKeyword || cityName.includes(normalizedKeyword);
+    label.classList.toggle("city-item-hidden-by-search", !matched);
+  });
+}
+
+function syncCitySearchUi(isNbsSource) {
+  if (!citySearchEl) return;
+  citySearchEl.hidden = !isNbsSource;
+  citySearchEl.disabled = !isNbsSource;
+  if (!isNbsSource) {
+    citySearchEl.value = "";
+  }
+  filterCityListByKeyword(citySearchEl.value);
 }
 
 function getAlternateSourcesForCompare() {
@@ -1244,6 +1273,7 @@ function buildCityControls(cities, defaultSelectedNames = null) {
   for (const city of orderedCities) {
     const label = document.createElement("label");
     label.className = "city-item";
+    label.dataset.cityName = city.name;
     const input = document.createElement("input");
     input.type = "checkbox";
     input.value = city.id;
@@ -4215,6 +4245,12 @@ function bindEvents() {
       setStatus(`一次最多选择 ${MAX_SELECTED_CITY_COUNT} 个城市。`, true);
     }
   });
+
+  if (citySearchEl) {
+    citySearchEl.addEventListener("input", () => {
+      filterCityListByKeyword(citySearchEl.value);
+    });
+  }
 
   selectAllBtn.addEventListener("click", () => {
     let selectedCount = 0;
