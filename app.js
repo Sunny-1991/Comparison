@@ -1517,11 +1517,27 @@ function pickDistinctColor(preferredColor, assignedColors, candidatePool, minDis
 function ensureDistinctCityLineColors(rendered, minDistance = MIN_DISTINCT_SERIES_COLOR_DISTANCE) {
   if (!Array.isArray(rendered) || rendered.length < 2) return;
   const themeMode = getCurrentThemeMode();
+  const corePalette = getThemeCoreCityPalette();
+  const isLockedCoreCity = (item) => {
+    const cityName = String(item?.cityName || "").trim();
+    return cityName && Object.prototype.hasOwnProperty.call(corePalette, cityName);
+  };
   const seedColors = rendered.map((item) => item.color).filter(Boolean);
   const candidatePool = buildDistinctCityColorPool(seedColors, themeMode, rendered.length);
   const assignedColors = [];
 
+  rendered.forEach((item) => {
+    if (!isLockedCoreCity(item)) return;
+    const cityName = String(item.cityName || "").trim();
+    item.color = corePalette[cityName];
+    const parsedLocked = parseChartColorToRgb(item.color);
+    if (parsedLocked) {
+      assignedColors.push({ rgb: parsedLocked });
+    }
+  });
+
   rendered.forEach((item, index) => {
+    if (isLockedCoreCity(item)) return;
     const fallbackColor = candidatePool[index % Math.max(candidatePool.length, 1)] || "";
     const preferredColor = String(item?.color || fallbackColor).trim();
     const nextColor = pickDistinctColor(
@@ -3924,6 +3940,7 @@ function render() {
     const lineColor = getColor(city.name, colorIndex);
     rendered.push({
       id: city.id,
+      cityName: city.name,
       name: displayName,
       endLabelMain,
       endLabelSub,

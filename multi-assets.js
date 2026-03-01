@@ -209,6 +209,24 @@ const METAL_FIXED_COLORS = Object.freeze({
     metal_silver_spot_usd: "#c4d0db",
   }),
 });
+const CORE_CITY_FIXED_COLORS = Object.freeze({
+  [THEME_MODE_LIGHT]: Object.freeze({
+    北京: "#5b9bd5",
+    上海: "#e2843f",
+    深圳: "#5d8f47",
+    广州: "#e6b311",
+    香港: "#1d1d1d",
+    天津: "#7d8b99",
+  }),
+  [THEME_MODE_DARK]: Object.freeze({
+    北京: "#73c5ff",
+    上海: "#f7b34d",
+    深圳: "#74d29c",
+    广州: "#f2cf6b",
+    香港: "#c9d5df",
+    天津: "#8db3cc",
+  }),
+});
 const MIN_DISTINCT_SERIES_COLOR_DISTANCE = 110;
 
 const themeModeEl = document.getElementById("themeMode");
@@ -555,6 +573,10 @@ function getCurrentThemeMode() {
 
 function getActiveChartThemeStyle() {
   return CHART_THEME_STYLES[getCurrentThemeMode()] || CHART_THEME_STYLES[THEME_MODE_LIGHT];
+}
+
+function getThemeCoreCityPalette() {
+  return CORE_CITY_FIXED_COLORS[getCurrentThemeMode()] || CORE_CITY_FIXED_COLORS[THEME_MODE_LIGHT];
 }
 
 function applyThemeMode(nextMode, { persist = true, rerender = true } = {}) {
@@ -2131,11 +2153,18 @@ function sortAssetsForUi(assetList) {
   });
 }
 
+function getCnHousingCityName(asset) {
+  if (!asset || asset.categoryKey !== "cn_housing") return "";
+  const cityMatch = String(asset.name || "").match(/·([^·]+)$/);
+  if (cityMatch && cityMatch[1]) return String(cityMatch[1]).trim();
+  return stripAssetDisplayQualifier(asset.legendName || asset.name || "");
+}
+
 function getAssetPickerLabel(asset) {
   if (!asset) return "";
   if (asset.categoryKey === "cn_housing") {
-    const cityMatch = String(asset.name || "").match(/·([^·]+)$/);
-    if (cityMatch && cityMatch[1]) return cityMatch[1];
+    const cityName = getCnHousingCityName(asset);
+    if (cityName) return cityName;
   }
   return stripAssetDisplayQualifier(asset.legendName || asset.name || "");
 }
@@ -2156,11 +2185,7 @@ function appendHousingSuffix(label) {
 function getAssetDisplayName(asset) {
   if (!asset || typeof asset !== "object") return "";
   if (asset.categoryKey === "cn_housing") {
-    const cityMatch = String(asset.name || "").match(/·([^·]+)$/);
-    const cityName =
-      cityMatch && cityMatch[1]
-        ? cityMatch[1]
-        : stripAssetDisplayQualifier(asset.legendName || asset.name || "");
+    const cityName = getCnHousingCityName(asset);
     return appendHousingSuffix(cityName);
   }
   if (asset.categoryKey === "us_housing") {
@@ -2620,6 +2645,13 @@ function getSeriesColor(index) {
 
 function getAssetSeriesColor(asset, index) {
   const mode = getCurrentThemeMode();
+  if (asset?.categoryKey === "cn_housing") {
+    const corePalette = getThemeCoreCityPalette();
+    const cityName = getCnHousingCityName(asset);
+    if (Object.prototype.hasOwnProperty.call(corePalette, cityName)) {
+      return corePalette[cityName];
+    }
+  }
   const fixedMap = METAL_FIXED_COLORS[mode] || METAL_FIXED_COLORS[THEME_MODE_LIGHT];
   const assetId = String(asset?.id || "");
   if (Object.prototype.hasOwnProperty.call(fixedMap, assetId)) {
@@ -2839,11 +2871,28 @@ function ensureDistinctAssetLineColors(
 ) {
   if (!Array.isArray(rendered) || rendered.length < 2) return;
   const themeMode = getCurrentThemeMode();
+  const corePalette = getThemeCoreCityPalette();
+  const isLockedCoreCity = (item) => {
+    if (item?.categoryKey !== "cn_housing") return false;
+    const cityName = String(item?.cityName || "").trim();
+    return cityName && Object.prototype.hasOwnProperty.call(corePalette, cityName);
+  };
   const seedColors = rendered.map((item) => item.color).filter(Boolean);
   const candidatePool = buildDistinctAssetColorPool(seedColors, themeMode, rendered.length);
   const assignedColors = [];
 
+  rendered.forEach((item) => {
+    if (!isLockedCoreCity(item)) return;
+    const cityName = String(item.cityName || "").trim();
+    item.color = corePalette[cityName];
+    const parsedLocked = parseChartColorToRgb(item.color);
+    if (parsedLocked) {
+      assignedColors.push({ rgb: parsedLocked });
+    }
+  });
+
   rendered.forEach((item, index) => {
+    if (isLockedCoreCity(item)) return;
     const fallbackColor = candidatePool[index % Math.max(candidatePool.length, 1)] || "";
     const preferredColor = String(item?.color || fallbackColor).trim();
     const nextColor = pickDistinctColor(
@@ -3529,6 +3578,7 @@ function render() {
       seriesName,
       name: displayName,
       categoryKey: asset.categoryKey,
+      cityName: asset.categoryKey === "cn_housing" ? getCnHousingCityName(asset) : "",
       normalized,
       normalizedOhlc,
       seriesType,
