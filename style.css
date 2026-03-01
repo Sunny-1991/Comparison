@@ -1,9 +1,17 @@
 @font-face {
-  font-family: "STKaiti";
+  font-family: "DashboardChartKai";
   font-style: normal;
-  font-weight: 100 900;
+  font-weight: 400;
   font-display: block;
-  src: url("./fonts/stkaiti-regular.woff2") format("woff2");
+  src: url("./fonts/dashboard-chart-kai-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "DashboardChartKai";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("./fonts/dashboard-chart-kai-bold.woff2") format("woff2");
 }
 
 :root {
@@ -26,7 +34,7 @@
     "Helvetica Neue", sans-serif;
   --display-font: "Marcellus", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Helvetica Neue", sans-serif;
-  --chart-font: "STKaiti", "Kaiti SC", "STKaiti SC", "KaiTi", "BiauKai", serif;
+  --chart-font: "DashboardChartKai", "LXGW WenKai", "STKaiti", "Kaiti SC", "KaiTi", "BiauKai", serif;
 }
 
 * {
