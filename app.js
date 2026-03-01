@@ -2125,9 +2125,6 @@ function findDrawdownAnalysis(values, months) {
 
 function updateDrawdownButton(eligibleCount) {
   const enabled = eligibleCount > 0;
-  if (!enabled) {
-    uiState.showDrawdownAnalysis = false;
-  }
 
   drawdownBtn.disabled = !enabled;
   drawdownBtn.classList.toggle("enabled", enabled);
@@ -4074,7 +4071,11 @@ function render() {
       lineWidthScale,
       lineOpacity,
       peakMarker:
-        uiState.showDrawdownAnalysis && allowAnnotations && peakMonth && isFiniteNumber(peakValue)
+        uiState.showDrawdownAnalysis &&
+        allowAnnotations &&
+        drawdownAnalysis &&
+        peakMonth &&
+        isFiniteNumber(peakValue)
           ? {
               month: peakMonth,
               value: peakValue,
@@ -4229,7 +4230,7 @@ function render() {
     ? `以下城市在当前区间暂无有效值：${noDataCities.join("、")}。`
     : "";
   const modeText = `已按滑块起点 ${viewportStartMonth} 统一定基 100。`;
-  const analysisText = uiState.showDrawdownAnalysis
+  const analysisText = uiState.showDrawdownAnalysis && drawdownEligibleCount > 0
     ? "已显示累计跌幅与跌回示意。"
     : "";
   const compareText =
