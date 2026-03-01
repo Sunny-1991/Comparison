@@ -3994,6 +3994,7 @@ function render() {
   const activeSourceLegend = activeSourceMeta?.legendLabel || activeSourceMeta?.label || "当前源";
   const compareSourceLegend = compareContext?.source?.legendLabel || compareContext?.source?.label || "对比源";
   let compareSeriesRendered = false;
+  let compareAlignmentNote = "";
 
   function appendSeries({
     city,
@@ -4010,15 +4011,23 @@ function render() {
     lineWidthScale = 1,
     lineOpacity = 1,
     allowAnnotations = true,
+    normalizeBaseOffset = viewportStartOffset,
+    normalizeTargetValue = 100,
   }) {
-    const baseRaw = seriesRaw[viewportStartOffset];
+    const safeBaseOffset = Number.isInteger(normalizeBaseOffset)
+      ? clampNumber(normalizeBaseOffset, 0, Math.max(0, seriesRaw.length - 1))
+      : viewportStartOffset;
+    const baseRaw = seriesRaw[safeBaseOffset];
     if (!isFiniteNumber(baseRaw) || baseRaw <= 0) {
       missingBase.push(displayName);
       return false;
     }
+    const safeNormalizeTargetValue = isFiniteNumber(normalizeTargetValue)
+      ? normalizeTargetValue
+      : 100;
     const normalized = seriesRaw.map((value) => {
       if (!isFiniteNumber(value)) return null;
-      return (value / baseRaw) * 100;
+      return (value / baseRaw) * safeNormalizeTargetValue;
     });
     const viewportNormalized = normalized.slice(viewportStartOffset, viewportEndOffset + 1);
 
@@ -4145,9 +4154,46 @@ function render() {
   if (compareContext) {
     const compareSeries = compareContext.source?.data?.values?.[compareContext.city.id];
     if (Array.isArray(compareSeries)) {
+      const compareSeriesRaw = alignSeriesByMonths(compareContext.source.data, compareSeries, months);
+      let compareNormalizeBaseOffset = viewportStartOffset;
+      let compareNormalizeTargetValue = 100;
+
+      const isNbsVsCentaline =
+        activeSourceMeta?.key === "nbs70" && compareContext.source?.key === "centaline6";
+      const compareStartValue = compareSeriesRaw[viewportStartOffset];
+      if (
+        isNbsVsCentaline &&
+        (!isFiniteNumber(compareStartValue) || compareStartValue <= 0)
+      ) {
+        const alignMonth = "2008-01";
+        const alignOffset = findMonthIndexByToken(alignMonth);
+        const activeSeriesByCityId = raw.values?.[selectedCityIds[0]];
+        const activeSeriesRaw = Array.isArray(activeSeriesByCityId)
+          ? activeSeriesByCityId.slice(startIndex, endIndex + 1)
+          : null;
+        if (alignOffset >= 0 && Array.isArray(activeSeriesRaw)) {
+          const compareAnchorRaw = compareSeriesRaw[alignOffset];
+          const activeBaseRaw = activeSeriesRaw[viewportStartOffset];
+          const activeAnchorRaw = activeSeriesRaw[alignOffset];
+          if (
+            isFiniteNumber(compareAnchorRaw) &&
+            compareAnchorRaw > 0 &&
+            isFiniteNumber(activeBaseRaw) &&
+            activeBaseRaw > 0 &&
+            isFiniteNumber(activeAnchorRaw) &&
+            activeAnchorRaw > 0
+          ) {
+            compareNormalizeBaseOffset = alignOffset;
+            compareNormalizeTargetValue = (activeAnchorRaw / activeBaseRaw) * 100;
+            compareAlignmentNote =
+              `已将${compareSourceLegend}在${alignMonth}对齐到${activeSourceLegend}同月水平后进行对比。`;
+          }
+        }
+      }
+
       compareSeriesRendered = appendSeries({
         city: compareContext.city,
-        seriesRaw: alignSeriesByMonths(compareContext.source.data, compareSeries, months),
+        seriesRaw: compareSeriesRaw,
         sourceKey: compareContext.source.key,
         sourceLabel: compareSourceLegend,
         displayName: `${compareContext.cityName}（${compareSourceLegend}）`,
@@ -4160,6 +4206,8 @@ function render() {
         lineWidthScale: 0.94,
         lineOpacity: 0.96,
         allowAnnotations: true,
+        normalizeBaseOffset: compareNormalizeBaseOffset,
+        normalizeTargetValue: compareNormalizeTargetValue,
       });
     }
   }
@@ -4235,7 +4283,7 @@ function render() {
     : "";
   const compareText =
     compareContext && compareSeriesRendered
-      ? `已开启 ${compareContext.cityName} 跨源对比（${activeSourceLegend} vs ${compareSourceLegend}）。`
+      ? `已开启 ${compareContext.cityName} 跨源对比（${activeSourceLegend} vs ${compareSourceLegend}）。${compareAlignmentNote}`
       : "";
   const sourceLabel = activeSourceMeta?.sourceTitle || "中原领先指数（月度）";
   footnoteEl.textContent = `数据源：${sourceLabel}。${modeText}${compareText}当前滑块区间：${viewportStartMonth} ~ ${viewportEndMonth}。${analysisText}${missingText}${noDataText}`;
