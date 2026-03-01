@@ -3,7 +3,8 @@ const THEME_MODE_LIGHT = "light";
 const THEME_MODE_DARK = "dark";
 const MAX_SELECTED_ASSET_COUNT = 6;
 const BASE_START_MONTH = "2008-01";
-const CHART_FONT_FAMILY = '"STKaiti", "Kaiti SC", "KaiTi", "BiauKai", serif';
+const CHART_FONT_FAMILY =
+  '"DashboardChartKai", "LXGW WenKai", "STKaiti", "Kaiti SC", "KaiTi", "BiauKai", serif';
 
 const CASE_SHILLER_SERIES = Object.freeze([
   { id: "us_cs_atxrsa", seriesId: "ATXRSA", name: "美国房产·亚特兰大都会区", legendName: "亚特兰大（Case-Shiller）" },
@@ -3814,6 +3815,26 @@ function bindEvents() {
   });
 }
 
+let chartFontRerenderScheduled = false;
+
+function rerenderAfterChartFontReady() {
+  if (chartFontRerenderScheduled) return;
+  chartFontRerenderScheduled = true;
+  if (!document.fonts || typeof document.fonts.load !== "function") return;
+
+  Promise.all([
+    document.fonts.load(`400 16px ${CHART_FONT_FAMILY}`),
+    document.fonts.load(`700 16px ${CHART_FONT_FAMILY}`),
+  ])
+    .then(() => {
+      syncChartViewport();
+      safeRender("字体加载完成重绘");
+    })
+    .catch(() => {
+      // ignore font loading failures and keep existing rendering
+    });
+}
+
 async function init() {
   applyThemeMode(readStoredThemeMode(), { persist: false, rerender: false });
 
@@ -3840,6 +3861,7 @@ async function init() {
   if (!safeRender("初始化图表")) {
     return;
   }
+  rerenderAfterChartFontReady();
 
   if (Array.isArray(dataset.warnings) && dataset.warnings.length > 0) {
     setStatus(`已加载核心数据，部分资产源暂不可用：${dataset.warnings.slice(0, 3).join(" ")}`, true);

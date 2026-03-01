@@ -119,7 +119,8 @@ const OVERLAY_CITY_ORDER = ["北京", "上海", "广州", "深圳", "天津", "�
 const OVERLAY_CITY_ORDER_INDEX = new Map(
   OVERLAY_CITY_ORDER.map((name, index) => [name, index]),
 );
-const CHART_FONT_FAMILY = '"STKaiti", "Kaiti SC", "KaiTi", "BiauKai", serif';
+const CHART_FONT_FAMILY =
+  '"DashboardChartKai", "LXGW WenKai", "STKaiti", "Kaiti SC", "KaiTi", "BiauKai", serif';
 const CHART_LAYOUT_BASE_WIDTH = 1160;
 const CHART_LAYOUT_ASPECT_RATIO = 0.78;
 const CHART_LAYOUT_MIN_HEIGHT = 420;
@@ -4435,6 +4436,26 @@ function bindEvents() {
   });
 }
 
+let chartFontRerenderScheduled = false;
+
+function rerenderAfterChartFontReady() {
+  if (chartFontRerenderScheduled) return;
+  chartFontRerenderScheduled = true;
+  if (!document.fonts || typeof document.fonts.load !== "function") return;
+
+  Promise.all([
+    document.fonts.load(`400 16px ${CHART_FONT_FAMILY}`),
+    document.fonts.load(`700 16px ${CHART_FONT_FAMILY}`),
+  ])
+    .then(() => {
+      syncChartViewport();
+      render();
+    })
+    .catch(() => {
+      // ignore font loading failures and keep existing rendering
+    });
+}
+
 function init() {
   const availableSources = listAvailableSources();
   if (availableSources.length === 0) {
@@ -4456,6 +4477,7 @@ function init() {
   bindEvents();
   bindChartWheelToPageScroll();
   render();
+  rerenderAfterChartFontReady();
 }
 
 init();
