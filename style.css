@@ -1320,6 +1320,10 @@ body.theme-dark .timeline-zoom-input::-moz-range-thumb {
   margin-left: -1em;
 }
 
+.page:not(.page-multi-assets) .chart-stats-note {
+  margin-left: -2em;
+}
+
 .chart-stats-source-tag {
   position: absolute;
   left: calc(100% + 2px);
