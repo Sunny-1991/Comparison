@@ -120,7 +120,7 @@ const OVERLAY_CITY_ORDER_INDEX = new Map(
   OVERLAY_CITY_ORDER.map((name, index) => [name, index]),
 );
 const CHART_FONT_FAMILY =
-  '"DashboardChartKai", "LXGW WenKai", "STKaiti", "Kaiti SC", "KaiTi", "BiauKai", serif';
+  '"STKaiti", "Kaiti SC", "STKaiti SC", "KaiTi", "BiauKai", serif';
 const CHART_LAYOUT_BASE_WIDTH = 1160;
 const CHART_LAYOUT_ASPECT_RATIO = 0.78;
 const CHART_LAYOUT_MIN_HEIGHT = 420;

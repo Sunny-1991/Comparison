@@ -4,7 +4,7 @@ const THEME_MODE_DARK = "dark";
 const MAX_SELECTED_ASSET_COUNT = 6;
 const BASE_START_MONTH = "2008-01";
 const CHART_FONT_FAMILY =
-  '"DashboardChartKai", "LXGW WenKai", "STKaiti", "Kaiti SC", "KaiTi", "BiauKai", serif';
+  '"STKaiti", "Kaiti SC", "STKaiti SC", "KaiTi", "BiauKai", serif';
 
 const CASE_SHILLER_SERIES = Object.freeze([
   { id: "us_cs_atxrsa", seriesId: "ATXRSA", name: "美国房产·亚特兰大都会区", legendName: "亚特兰大（Case-Shiller）" },
