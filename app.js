@@ -197,6 +197,72 @@ const OVERLAY_SOURCE_PROFILES = Object.freeze({
     sourceNote: "国家统计局",
   },
 });
+const PROVINCE_NAME_BY_CODE_PREFIX = Object.freeze({
+  "11": "北京",
+  "12": "天津",
+  "13": "河北",
+  "14": "山西",
+  "15": "内蒙古",
+  "21": "辽宁",
+  "22": "吉林",
+  "23": "黑龙江",
+  "31": "上海",
+  "32": "江苏",
+  "33": "浙江",
+  "34": "安徽",
+  "35": "福建",
+  "36": "江西",
+  "37": "山东",
+  "41": "河南",
+  "42": "湖北",
+  "43": "湖南",
+  "44": "广东",
+  "45": "广西",
+  "46": "海南",
+  "50": "重庆",
+  "51": "四川",
+  "52": "贵州",
+  "53": "云南",
+  "54": "西藏",
+  "61": "陕西",
+  "62": "甘肃",
+  "63": "青海",
+  "64": "宁夏",
+  "65": "新疆",
+});
+const PROVINCE_SEARCH_ALIASES = Object.freeze({
+  北京: Object.freeze(["北京", "北京市"]),
+  天津: Object.freeze(["天津", "天津市"]),
+  河北: Object.freeze(["河北", "河北省"]),
+  山西: Object.freeze(["山西", "山西省"]),
+  内蒙古: Object.freeze(["内蒙古", "内蒙古自治区"]),
+  辽宁: Object.freeze(["辽宁", "辽宁省"]),
+  吉林: Object.freeze(["吉林", "吉林省"]),
+  黑龙江: Object.freeze(["黑龙江", "黑龙江省"]),
+  上海: Object.freeze(["上海", "上海市"]),
+  江苏: Object.freeze(["江苏", "江苏省"]),
+  浙江: Object.freeze(["浙江", "浙江省"]),
+  安徽: Object.freeze(["安徽", "安徽省"]),
+  福建: Object.freeze(["福建", "福建省"]),
+  江西: Object.freeze(["江西", "江西省"]),
+  山东: Object.freeze(["山东", "山东省"]),
+  河南: Object.freeze(["河南", "河南省"]),
+  湖北: Object.freeze(["湖北", "湖北省"]),
+  湖南: Object.freeze(["湖南", "湖南省"]),
+  广东: Object.freeze(["广东", "广东省"]),
+  广西: Object.freeze(["广西", "广西壮族自治区"]),
+  海南: Object.freeze(["海南", "海南省"]),
+  重庆: Object.freeze(["重庆", "重庆市"]),
+  四川: Object.freeze(["四川", "四川省"]),
+  贵州: Object.freeze(["贵州", "贵州省"]),
+  云南: Object.freeze(["云南", "云南省"]),
+  西藏: Object.freeze(["西藏", "西藏自治区"]),
+  陕西: Object.freeze(["陕西", "陕西省"]),
+  甘肃: Object.freeze(["甘肃", "甘肃省"]),
+  青海: Object.freeze(["青海", "青海省"]),
+  宁夏: Object.freeze(["宁夏", "宁夏回族自治区"]),
+  新疆: Object.freeze(["新疆", "新疆维吾尔自治区"]),
+});
 const CITY_LIST_THREE_COLS_CLASS = "city-list--three-cols";
 const MIN_DISTINCT_SERIES_COLOR_DISTANCE = 110;
 const cityById = new Map();
@@ -604,15 +670,37 @@ function normalizeCitySearchKeyword(keyword) {
   return String(keyword || "").trim().toLowerCase();
 }
 
+function getProvinceSearchTokensFromRegCode(regCode) {
+  const code = String(regCode || "").trim();
+  if (!/^\d{6}$/.test(code)) return [];
+  const provinceName = PROVINCE_NAME_BY_CODE_PREFIX[code.slice(0, 2)];
+  if (!provinceName) return [];
+  return PROVINCE_SEARCH_ALIASES[provinceName] || [provinceName];
+}
+
+function buildCitySearchTokens(city) {
+  const tokens = new Set();
+  const pushToken = (value) => {
+    const normalized = normalizeCitySearchKeyword(value);
+    if (normalized) tokens.add(normalized);
+  };
+
+  pushToken(city?.name);
+  getProvinceSearchTokensFromRegCode(city?.regCode).forEach((token) => {
+    pushToken(token);
+  });
+  return [...tokens];
+}
+
 function filterCityListByKeyword(keyword) {
   const normalizedKeyword = normalizeCitySearchKeyword(keyword);
   const cityItems = [...cityListEl.querySelectorAll(".city-item")];
 
   cityItems.forEach((label) => {
-    const cityName = String(label.dataset.cityName || label.textContent || "")
-      .trim()
-      .toLowerCase();
-    const matched = !normalizedKeyword || cityName.includes(normalizedKeyword);
+    const searchableText = String(
+      label.dataset.searchTokens || label.dataset.cityName || label.textContent || "",
+    ).trim().toLowerCase();
+    const matched = !normalizedKeyword || searchableText.includes(normalizedKeyword);
     label.classList.toggle("city-item-hidden-by-search", !matched);
   });
 }
@@ -1274,6 +1362,7 @@ function buildCityControls(cities, defaultSelectedNames = null) {
     const label = document.createElement("label");
     label.className = "city-item";
     label.dataset.cityName = city.name;
+    label.dataset.searchTokens = buildCitySearchTokens(city).join("|");
     const input = document.createElement("input");
     input.type = "checkbox";
     input.value = city.id;
